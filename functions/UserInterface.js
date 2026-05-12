@@ -428,8 +428,32 @@ function authorizeForAws() {
 
 function checkForUpdate() {
   const currentVersion = getScriptVersion();
-  const latestVersion = getLatestScriptVersionFromGithub();
-  const helpUrl = getUpdateHelpUrl(latestVersion);
+  var latestVersion;
+  try {
+    latestVersion = getLatestScriptVersionFromGithub();
+  } catch (err) {
+    const releasesUrl = 'https://github.com/Lattice-Data/lattice-metadata-submitter/releases';
+    var detailHtml = '<p>Could not determine the latest release tag from GitHub.</p>';
+    var msg = err && err.message ? String(err.message) : '';
+    if (msg.indexOf('LATTICE_RELEASE_CHECK_HTTP_') === 0) {
+      var httpCode = Utilities.htmlEscape(msg.replace('LATTICE_RELEASE_CHECK_HTTP_', ''));
+      detailHtml += '<p>GitHub returned HTTP ' + httpCode + ' instead of a redirect. You can retry later or open the releases page below.</p>';
+    } else if (msg === 'LATTICE_RELEASE_CHECK_NO_LOCATION') {
+      detailHtml += '<p>The response had no <code>Location</code> header. Open the releases page below to see the latest version.</p>';
+    } else if (msg === 'LATTICE_RELEASE_CHECK_BAD_LOCATION') {
+      detailHtml += '<p>The redirect target did not look like a release tag URL. Open the releases page below.</p>';
+    } else if (msg === 'LATTICE_RELEASE_CHECK_EMPTY_TAG') {
+      detailHtml += '<p>The latest release tag could not be parsed. Open the releases page below.</p>';
+    } else {
+      detailHtml += '<p>Something went wrong while contacting GitHub. Open the releases page below.</p>';
+    }
+    detailHtml += '<p><a href="' + releasesUrl + '" target="_blank" rel="noopener noreferrer">Open releases on GitHub</a></p>';
+    var errOutput = HtmlService.createHtmlOutput(detailHtml)
+        .setWidth(500)
+        .setHeight(260);
+    SpreadsheetApp.getUi().showModalDialog(errOutput, 'Check for script update');
+    return;
+  }
 
   var updateHelp = '';
   if (currentVersion !== latestVersion) {
