@@ -2,7 +2,7 @@
 Menu functions
 */
 
-const URL_GITHUB = "https://github.com/IGVF-DACC/igvf-metadata-submitter/tree/dev";
+const URL_GITHUB = "https://github.com/Lattice-Data/lattice-metadata-submitter/tree/main";
 
 
 function search() {
@@ -404,6 +404,10 @@ function authorizeForEncode() {
 
 function authorizeForIgvf() {
   return authorize(IGVF);
+}
+
+function authorizeForLattice() {
+  return authorize(LATTICE);
 }
 
 // currently developer only (debugging purpose)

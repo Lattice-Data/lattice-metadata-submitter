@@ -30,7 +30,7 @@ There is a CLI version https://github.com/IGVF-DACC/igvf_utils. It's forked from
 
 ### Apps Script Quota and why profiles are hard-coded.
 
-Apps Script is free but limited. There is a quota for many actions. e.g. Number of URL fetch requests per day. I tried to minimize number of requests so had to hard-code list of valid profiles. So update `ALL_IGVF_PROFILES` array in `functions/Endpoint.js` whenever there is a new release for the portal.
+Apps Script is free but limited. There is a quota for many actions. e.g. Number of URL fetch requests per day. I tried to minimize number of requests so had to hard-code list of valid profiles. So update `ALL_IGVF_PROFILES` and `ALL_LATTICE_PROFILES` arrays in `functions/Endpoint.js` whenever there is a new release for the relevant portal.
 
 
 ### How to debug in Apps Script
@@ -50,14 +50,14 @@ If a user clicks on `Check for script update` menu then the code wil check the l
 See [`INSTALL.md`](INSTALL.md) for details about how to create a new Google Sheet document.
 
 And then update the followings:
-- var `SCRIPT_VERSION` in `functions/Version.gs`.
+- var `SCRIPT_VERSION` in `functions/Version.js`.
 - Google Sheet URL and version number in `README.md`.
 - Version number in `INSTALL.md`.
 
 
 ### How to update IGVF profiles to the latest
 
-For Google Apps Script quota-related reasons, list of valid profiles for both platforms (ENCODE and IGVF) are hardcoded in `functions/Endpoint.gs`. You can find a shell command line to get the latest sorted profiles directly from the production server.
+For Google Apps Script quota-related reasons, list of valid profiles for ENCODE, IGVF, and LATTICE are hardcoded in `functions/Endpoint.js`. You can find a shell command line to get the latest sorted profiles directly from the production server.
 
 Check comments in the above file. For example, to get the latest IGVF profiles, run the following:
 ```
@@ -75,3 +75,8 @@ $ npm run deploy
 ```
 
 Make sure that target Apps Script ID matches with that defined in `.clasp.json`.
+
+### Automated tests
+
+Run `npm test` before opening a PR. This runs Jest checks on `src/server/menu.js` and on the webpack output `dist/functions.js` (the suite runs `npm run build` first). Optional byte-level compare of the merged functions bundle against `fixtures/manual/functions.gs`: `FULL_PARITY=1 npm run test:parity` (usually fails unless file order matches the manual snapshot).
+

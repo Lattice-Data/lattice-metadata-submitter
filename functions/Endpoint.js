@@ -16,10 +16,13 @@ Double-check it with profiles retrieved with the following command line
 curl "https://api.data.igvf.org/profiles?format=json&frame=object" \
   | jq | perl -ne '/\/profiles\/(.+).json/ and print "  \"$1\",\n";' | sort | uniq
 
+ALL_LATTICE_PROFILES: maintain alongside portal releases (same quota rationale as IGVF).
+
 */
 
 const ENCODE = "ENCODE";
 const IGVF = "IGVF";
+const LATTICE = "LATTICE";
 
 // These are API endpoints.
 // If there is a UI endpoint then add it to ENDPOINT_MAP_API_TO_UI below
@@ -32,26 +35,48 @@ const ENCODE_ENDPOINTS = [
   ENDPOINT_ENCODE_TEST,
 ];
 
+const ENDPOINT_IGVF_TEST = "https://igvfd-dev.demo.igvf.org";
+const ENDPOINT_IGVF_SANDBOX = "https://api.sandbox.igvf.org";
 const ENDPOINT_IGVF_STAGING = "https://api.staging.igvf.org";
 const ENDPOINT_IGVF_DATA = "https://api.data.igvf.org";
 const IGVF_ENDPOINTS = [
+  ENDPOINT_IGVF_TEST,
+  ENDPOINT_IGVF_SANDBOX,
   ENDPOINT_IGVF_STAGING,
   ENDPOINT_IGVF_DATA,
 ];
 
-const DEFAULT_ENDPOINT_READ = ENDPOINT_IGVF_STAGING;
-const DEFAULT_ENDPOINT_WRITE = ENDPOINT_IGVF_STAGING;
+const ENDPOINT_LATTICE_DEV = "https://lattice-api-dev.demo.lattice-data.org";
+const ENDPOINT_LATTICE_SANDBOX = "https://api.sandbox.lattice-data.org";
+const ENDPOINT_LATTICE_STAGING = "https://api.staging.lattice-data.org";
+const ENDPOINT_LATTICE_DATA = "https://api.data.lattice-data.org";
+const LATTICE_ENDPOINTS = [
+  ENDPOINT_LATTICE_DEV,
+  ENDPOINT_LATTICE_SANDBOX,
+  ENDPOINT_LATTICE_STAGING,
+  ENDPOINT_LATTICE_DATA,
+];
+
+const DEFAULT_ENDPOINT_READ = ENDPOINT_IGVF_SANDBOX;
+const DEFAULT_ENDPOINT_WRITE = ENDPOINT_IGVF_SANDBOX;
 
 const ALL_ENDPOINTS = [
   ...ENCODE_ENDPOINTS,
   ...IGVF_ENDPOINTS,
+  ...LATTICE_ENDPOINTS,
 ];
 
 // Mapping from API to UI
 // Define only if API and UI endpoints are different
 const ENDPOINT_MAP_API_TO_UI = {
-  "https://api.staging.igvf.org" : "https://staging.igvf.org",
-  "https://api.data.igvf.org" : "https://data.igvf.org",
+  "https://igvfd-dev.demo.igvf.org": "https://igvf-ui-dev.demo.igvf.org",
+  "https://api.sandbox.igvf.org": "https://sandbox.igvf.org",
+  "https://api.staging.igvf.org": "https://staging.igvf.org",
+  "https://api.data.igvf.org": "https://data.igvf.org",
+  "https://lattice-api-dev.demo.lattice-data.org": "https://lattice-ui-dev.demo.lattice-data.org",
+  "https://api.sandbox.lattice-data.org": "https://sandbox.lattice-data.org",
+  "https://api.staging.lattice-data.org": "https://staging.lattice-data.org",
+  "https://api.data.lattice-data.org": "https://data.lattice-data.org",
 };
 
 const ALL_ENCODE_PROFILES = [
@@ -197,6 +222,7 @@ const ALL_IGVF_PROFILES = [
   "degron_modification",
   "document",
   "gene",
+  "genome_browser_annotation_file",
   "human_donor",
   "image",
   "image_file",
@@ -264,12 +290,58 @@ const CORE_SET_IGVF_PROFILES = [
   "sequence_file",
 ];
 
+const ALL_LATTICE_PROFILES = [
+  "access_key",
+  "biosample",
+  "controlled_term",
+  "document",
+  "donor",
+  "droplet_based_library",
+  "experimental_condition",
+  "file",
+  "file_set",
+  "genetic_modification",
+  "human_donor",
+  "image",
+  "cell_line",
+  "organoid",
+  "lab",
+  "library",
+  "matrix_file_set",
+  "non_human_donor",
+  "page",
+  "plate_based_library",
+  "primary_cell_culture",
+  "processed_matrix_file",
+  "raw_matrix_file",
+  "sequence_file",
+  "sequence_file_set",
+  "tabular_file",
+  "tissue",
+  "treatment",
+  "user",
+];
+
+const LATTICE_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION = [
+  "access_key",
+  "award",
+  "lab",
+  "gene",
+  "page",
+  "source",
+  "user",
+];
+
 function isEncodeEndpoint(endpoint) {
   return ENCODE_ENDPOINTS.includes(endpoint);
 }
 
 function isIgvfEndpoint(endpoint) {
   return IGVF_ENDPOINTS.includes(endpoint);
+}
+
+function isLatticeEndpoint(endpoint) {
+  return LATTICE_ENDPOINTS.includes(endpoint);
 }
 
 function isValidEndpoint(endpoint) {
@@ -292,11 +364,21 @@ function isIgvfUrl(url) {
   });
 }
 
+function isLatticeUrl(url) {
+  return LATTICE_ENDPOINTS.some(endpoint => {
+    if(url.startsWith(endpoint)) {
+      return true;
+    }
+  });
+}
+
 function getServerFromUrl(url) {
   if (isEncodeUrl(url)) {
     return ENCODE;
   } else if (isIgvfUrl(url)) {
     return IGVF;
+  } else if (isLatticeUrl(url)) {
+    return LATTICE;
   }
 }
 
@@ -305,6 +387,8 @@ function getAllProfiles(endpoint) {
     return ALL_ENCODE_PROFILES;
   } else if (isIgvfEndpoint(endpoint)) {
     return ALL_IGVF_PROFILES;
+  } else if (isLatticeEndpoint(endpoint)) {
+    return ALL_LATTICE_PROFILES;
   }
 }
 
@@ -316,7 +400,11 @@ function getUIEndpoint(endpoint) {
 }
 
 function getIgvfEndpointsAvailableForUsers() {
-  return IGVF_ENDPOINTS;
+  return IGVF_ENDPOINTS.filter(e => e !== ENDPOINT_IGVF_TEST);
+}
+
+function getLatticeEndpointsAvailableForUsers() {
+  return LATTICE_ENDPOINTS.filter(e => e !== ENDPOINT_LATTICE_DEV);
 }
 
 function getAllProfilesForTemplateGeneration(endpoint) {
@@ -326,5 +414,8 @@ function getAllProfilesForTemplateGeneration(endpoint) {
     // apply exclusion list for igvf profiles
     return ALL_IGVF_PROFILES
       .filter(item => !IGVF_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION.includes(item));
+  } else if (isLatticeEndpoint(endpoint)) {
+    return ALL_LATTICE_PROFILES
+      .filter(item => !LATTICE_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION.includes(item));
   }
 }

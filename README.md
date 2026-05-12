@@ -1,26 +1,26 @@
-# IGVF metadata submitter
+# Lattice metadata submitter
 
-IGVF metadata submitter based on Google Sheet + Google Apps Script.
+Spreadsheet-based metadata submitter (Google Sheets + Apps Script) for **Lattice**, with optional **IGVF** and **ENCODE** support via the Tools developer submenu.
 
 ## Installation
 
 Make a copy of the following spreadsheet: <https://docs.google.com/spreadsheets/d/15DZMshJ3d02xN_4pOPKbZ_6ZYMrAsQb4gs_S_M3Ksdk/edit?usp=sharing>
 
-Click on the menu item `IGVF` and then `Authorize for IGVF`. You will see an error message `Authorization Required`. Click on `Continue`, choose your Google account. Click on `Advanced` and `Go to IGVF Metadata Submitter (unsafe)` and then click on `Allow`.
+Click on the menu item `Lattice v…` and then `Authorize for LATTICE`. You will see an error message `Authorization Required`. Click on `Continue`, choose your Google account. Click on `Advanced` and `Go to … Metadata Submitter (unsafe)` and then click on `Allow`.
 
 To build and deploy a new spreadsheet directly from a code, see [INSTALL.md](docs/INSTALL.md).
 
 ### Authorization
 
-Get a key/secret pair from portal's `Profile` menu. Click on menu `Authorize for IGVF` and enter credentials.
+Get a key/secret pair from the portal's `Profile` menu. Click on menu `Authorize for LATTICE` and enter credentials. For IGVF-only workflows, use **Tools** → **Developers only** → **Authorize for IGVF**.
 
 ### Endpoint
 
-Click on menu `Set endpoint`. We provide multiple endpoints to communicate with the portal. For example, `https://api.staging.igvf.org` is an endpoint for staging purpose and `https://api.data.igvf.org` is for production. Click on menu `Set endpoint` and enter supported endpoints.
+Click on menu `Set endpoint`. Supported API bases include Lattice (`https://api.sandbox.lattice-data.org`, staging, data, …) and IGVF (`https://api.sandbox.igvf.org`, staging, data, …). Internal dev hosts may be hidden from the picker but remain valid if pasted.
 
 ### Profile
 
-Create a new sheet and click on menu `Set endpoint`. An endpoint is set for each sheet. Only `snake_case` (recommended) or capitalized `CamelCase` works. For example, `measurement_set`, `sequence_file`, `award` and `Lab`. The script will automatically create a template row for the given profile.
+Create a new sheet and click on menu `Set profile name`. An endpoint is set for each sheet. Only `snake_case` (recommended) or capitalized `CamelCase` works. For example, `measurement_set`, `sequence_file`, `document`, and `Lab`. The script will automatically create a template row for the given profile.
 
 ## Functions
 
@@ -58,7 +58,7 @@ It is recommended to make a local directory for document files only on your comp
 
 You can directly upload local files to portal's S3 bucket on the upload sidebar. Use it after POSTing metadata to the portal. Make sure that there is at least one identifying property in the header (e.g. `accession`, `uuid`).
 
-Click on menu `IGVF` - `Upload local files (sidebar)` and it will automatically add two columns to the current sheet: `#upload_status` and `#upload_abspath`. Define absolute paths of files to be uploaded under the column `#upload_abspath`. `#upload_status` will show uploading status.
+Click on menu `Lattice` - `Upload local files (sidebar)` and it will automatically add two columns to the current sheet: `#upload_status` and `#upload_abspath`. Define absolute paths of files to be uploaded under the column `#upload_abspath`. `#upload_status` will show uploading status.
 
 On the sidebar, you need to drag and drop a root folder that contains all files to be uploaded. Such action is necessary to grant read permission of files to the sidebar. Therefore, make sure that all files are organized under a single root directory.
 
@@ -71,7 +71,7 @@ Install AWS CLI first on your local computer/cluster where your files are.
 pip install awscli
 ```
 
-Click on menu `IGVF` - `Generate S3 command line for file uploading` and then the script will generate required columns for the feature: `#upload_abspath` and `#upload_cmd`. Define `#upload_abspath` for each row and click on the menu again. Use shell command line under `#upload_cmd` column to manually upload your files to the portal.
+Click on menu `Lattice` - `Generate S3 command line for file uploading` and then the script will generate required columns for the feature: `#upload_abspath` and `#upload_cmd`. Define `#upload_abspath` for each row and click on the menu again. Use shell command line under `#upload_cmd` column to manually upload your files to the portal.
 
 ## Property legends
 

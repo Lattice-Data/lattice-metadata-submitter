@@ -12,7 +12,8 @@
     "postbuild": "npm run format",
     "upload": "npx clasp push",
     "deploy": "npm run build && npm run upload",
-    "test": "jest"
+    "test": "jest",
+    "test:parity": "node scripts/compare-bundle-parity.js"
   },
   "repository": {
     "type": "git",

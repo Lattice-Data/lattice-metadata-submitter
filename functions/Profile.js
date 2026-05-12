@@ -115,7 +115,7 @@ function makeSearchUrlForProp(profile, prop, endpoint) {
 
   if (isEncodeEndpoint(endpoint)) {
     return `${uiEndpoint}/search/?type=${linkTo}`;
-  } else {
+  } else if (isIgvfEndpoint(endpoint) || isLatticeEndpoint(endpoint)) {
     return `${uiEndpoint}/search?type=${linkTo}`;
   }
 }
@@ -431,7 +431,7 @@ function checkProfile() {
     if (!profile) {
       alertBox(
         "Found profile name but couldn't get profile from portal. Wrong credentials?\n" +
-        "Go to the menu 'IGVF' -> 'Authorize for IGVF' and input access key and secret pair."
+        "Go to the menu 'Lattice' -> 'Authorize for LATTICE' (or use Tools -> Authorize for IGVF / ENCODE) and input access key and secret pair."
       );
       return;
     }
@@ -457,7 +457,7 @@ function checkProfile() {
 
   alertBox(
     "No profile name found.\n" +
-    'Go to the menu "IGVF" -> "Set profile name".'
+    'Go to the menu "Lattice" -> "Set profile name".'
   );
 }
 
@@ -472,7 +472,7 @@ function checkProfileForPost() {
     if (!profile) {
       alertBox(
         "Found profile name but couldn't get profile from portal. Wrong credentials?\n" +
-        "Go to the menu 'IGVF' -> 'Authorize for IGVF' and input access key and secret pair."
+        "Go to the menu 'Lattice' -> 'Authorize for LATTICE' (or use Tools -> Authorize for IGVF / ENCODE) and input access key and secret pair."
       );
       return;
     }
@@ -496,6 +496,6 @@ function checkProfileForPost() {
 
   alertBox(
     "No profile name found.\n" +
-    'Go to the menu "IGVF" -> "Set profile name".'
+    'Go to the menu "Lattice" -> "Set profile name".'
   );
 }
