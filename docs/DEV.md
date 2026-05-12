@@ -80,3 +80,5 @@ Make sure that target Apps Script ID matches with that defined in `.clasp.json`.
 
 Run `npm test` before opening a PR. This runs Jest checks on `src/server/menu.js` and on the webpack output `dist/functions.js` (the suite runs `npm run build` first). Optional byte-level compare of the merged functions bundle against `fixtures/manual/functions.gs`: `FULL_PARITY=1 npm run test:parity` (usually fails unless file order matches the manual snapshot).
 
+On GitHub, every **push** and **pull request** runs the same install, build, and test steps via [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+
