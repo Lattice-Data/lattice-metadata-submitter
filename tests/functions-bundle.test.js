@@ -15,4 +15,10 @@ test('dist/functions.js contains Lattice port markers', () => {
   expect(bundle).toContain('getLatticeEndpointsAvailableForUsers');
   expect(bundle).toContain('PROPERTY_LATTICE_USERNAME');
   expect(bundle).toContain('function getCSRFToken');
+  expect(bundle).toContain('function refreshProfileSlugCacheForUser');
+  expect(bundle).toContain('parseProfileSlugsFromProfilesResponse');
+  expect(bundle).not.toContain('function authorizeForEncode');
+  expect(bundle).not.toContain('function authorizeForIgvf');
+  expect(bundle).not.toContain('PROPERTY_ENCODE_USERNAME');
+  expect(bundle).not.toContain('PROPERTY_IGVF_USERNAME');
 });

@@ -47,9 +47,7 @@ function getLastUsedSchemaVersion(sheet) {
 function setDefaultEndpoint(input) {
   var endpoint = input ? input : Browser.inputBox(
     `* Current endpoint:\\n${getDefaultEndpoint()}\\n\\n` +
-    "* Supported IGVF endpoints:\\n" +
-    `${getIgvfEndpointsAvailableForUsers().join("\\n")}\\n\\n` +
-    "* Supported LATTICE endpoints:\\n" +
+    "* Supported Lattice API endpoints:\\n" +
     `${getLatticeEndpointsAvailableForUsers().join("\\n")}\\n\\n` +
     'Enter a new endpoint:'
   );

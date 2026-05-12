@@ -1,6 +1,6 @@
 # Lattice metadata submitter
 
-Spreadsheet-based metadata submitter (Google Sheets + Apps Script) for **Lattice**, with optional **IGVF** and **ENCODE** support via the Tools developer submenu.
+Spreadsheet-based metadata submitter (Google Sheets + Apps Script) for the **Lattice** metadata portal.
 
 ## Installation
 
@@ -12,15 +12,19 @@ To build and deploy a new spreadsheet directly from a code, see [INSTALL.md](doc
 
 ### Authorization
 
-Get a key/secret pair from the portal's `Profile` menu. Click on menu `Authorize for LATTICE` and enter credentials. For IGVF-only workflows, use **Tools** → **Developers only** → **Authorize for IGVF**.
+Get a key/secret pair from the portal's `Profile` menu. Click on menu `Authorize for LATTICE` and enter your access key and secret.
 
 ### Endpoint
 
-Click on menu `Set endpoint`. Supported API bases include Lattice (`https://api.sandbox.lattice-data.org`, staging, data, …) and IGVF (`https://api.sandbox.igvf.org`, staging, data, …). Internal dev hosts may be hidden from the picker but remain valid if pasted.
+The **Set endpoint** dialog lists these four supported API bases (always valid): `https://lattice-api-dev.demo.lattice-data.org`, `https://api.sandbox.lattice-data.org`, `https://api.staging.lattice-data.org`, and `https://api.data.lattice-data.org`. They are spelled out in code and do not depend on the wildcard rule.
+
+Separately, **additional** API origins may be allowed if they are `https://` hosts ending in **`.demo.lattice-data.org`** (no path, no query); see `ADDITIONAL_LATTICE_API_ENDPOINT_REGEX` in [`functions/Endpoint.js`](functions/Endpoint.js). If an API host differs from the browser UI host, add a mapping in `ENDPOINT_MAP_API_TO_UI` in that file so search and profile links open the correct UI.
 
 ### Profile
 
 Create a new sheet and click on menu `Set profile name`. An endpoint is set for each sheet. Only `snake_case` (recommended) or capitalized `CamelCase` works. For example, `measurement_set`, `sequence_file`, `document`, and `Lab`. The script will automatically create a template row for the given profile.
+
+Allowed profile names come from the portal (`GET {endpoint}/profiles?format=json&frame=object`), cached for several hours, with fallback to the static list in `functions/Endpoint.js`. After a portal release, use **Tools → Refresh profile list from portal** to refresh the cache.
 
 ## Functions
 

@@ -375,39 +375,31 @@ function exportToJson() {
   );
 }
 
-function authorize(server) {
-  if (getUsername(server) && getPassword(server)) {
+function authorize() {
+  if (getUsername() && getPassword()) {
     if (!alertBoxOkCancel(
-      `Access key and access key secret already exist for ${server}, are you sure to proceed?`)) {
+      "Access key and access key secret already exist for Lattice, are you sure to proceed?")) {
       return;
     }
   }
 
-  var username = Browser.inputBox(`Enter your access key for ${server}:`);
+  var username = Browser.inputBox("Enter your Lattice access key:");
   if (!username || username === "cancel") {
     alertBox("Failed to update access key.");
     return;
   }
-  setUsername(username, server);
+  setUsername(username);
 
-  var password = Browser.inputBox(`Enter your access key secret for ${server}:`);
+  var password = Browser.inputBox("Enter your Lattice access key secret:");
   if (!password || password === "cancel") {
     alertBox("Failed to update access key secret.");
     return;
   }
-  setPassword(password, server);
-}
-
-function authorizeForEncode() {
-  return authorize(ENCODE);
-}
-
-function authorizeForIgvf() {
-  return authorize(IGVF);
+  setPassword(password);
 }
 
 function authorizeForLattice() {
-  return authorize(LATTICE);
+  return authorize();
 }
 
 // currently developer only (debugging purpose)

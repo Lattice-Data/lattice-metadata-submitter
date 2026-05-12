@@ -26,6 +26,7 @@ global.onOpen = () => {
   submenuTools.addItem('Create a new sheet with updated profile schema', 'updateCurrentSheet');
   submenuTools.addSeparator();
   submenuTools.addItem('Create template sheets for all profiles', 'createSheetsForAllProfiles');
+  submenuTools.addItem('Refresh profile list from portal', 'refreshProfileSlugCacheForUser');
   submenuTools.addSeparator();
   submenuTools.addItem('Export selected row to JSON', 'convertSelectedRowToJson');
   submenuTools.addItem('Export sheet to JSON', 'exportToJsonText');
@@ -41,8 +42,6 @@ global.onOpen = () => {
   submenuDeveloper.addItem('Show spreadsheet developer metadata', 'showSpreadsheetAllDevMetadata');
   submenuDeveloper.addItem("Set current sheet's last used schema version", 'setLastUsedSchemaVersion');
   submenuDeveloper.addSeparator();
-  submenuDeveloper.addItem('Authorize for ENCODE', 'authorizeForEncode');
-  submenuDeveloper.addItem('Authorize for IGVF', 'authorizeForIgvf');
   submenuTools.addSubMenu(submenuDeveloper);
 
   menu.addSubMenu(submenuTools);

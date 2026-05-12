@@ -12,7 +12,15 @@ test('menu uses Lattice branding and LATTICE auth at top level', () => {
   );
 });
 
-test('IGVF authorization remains under developer submenu', () => {
+test('developer submenu has no ENCODE or IGVF authorization entries', () => {
   const menu = fs.readFileSync(menuPath, 'utf8');
-  expect(menu).toContain("submenuDeveloper.addItem('Authorize for IGVF', 'authorizeForIgvf')");
+  expect(menu).not.toContain('Authorize for ENCODE');
+  expect(menu).not.toContain('Authorize for IGVF');
+  expect(menu).not.toContain('authorizeForEncode');
+  expect(menu).not.toContain('authorizeForIgvf');
+});
+
+test('Tools menu includes refresh profile list action', () => {
+  const menu = fs.readFileSync(menuPath, 'utf8');
+  expect(menu).toContain("submenuTools.addItem('Refresh profile list from portal', 'refreshProfileSlugCacheForUser')");
 });
