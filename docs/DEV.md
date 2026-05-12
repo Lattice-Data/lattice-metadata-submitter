@@ -42,7 +42,7 @@ If you want to debug running the script from google sheet menu item, you can use
 
 ### How script update (upgrade) works
 
-If a user clicks on `Check for script update` menu then the code wil check the latest release on github and check if its tag matches with `SCRIPT_VERSION`. See `Version.js` for details.
+If a user clicks on `Check for script update` menu then the code requests `https://github.com/Lattice-Data/lattice-metadata-submitter/releases/latest` with redirects disabled, reads the `Location` header from GitHub’s redirect (so the latest **tag** is derived without calling `api.github.com`), and compares it to `SCRIPT_VERSION`. See `Version.js` for details.
 
 
 ### How to bump version and make a new sheet
