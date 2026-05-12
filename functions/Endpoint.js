@@ -1,330 +1,128 @@
-/* All endpoint-specific data
+/* Lattice API bases; static ALL_LATTICE_PROFILES is fallback when /profiles cannot be fetched.
 
+Live profile slugs: GET {endpoint}/profiles?format=json&frame=object (see ProfileRegistry.js).
 
-ALL_ENCODE_PROFILES from the following command line (snapshotted at 05/23/2022)
+Optional host policy: ADDITIONAL_LATTICE_API_ENDPOINT_REGEX (wildcard *only* for extra *.demo.lattice-data.org hosts; the four primary bases are explicit constants below).
 
-curl "https://www.encodeproject.org/profiles/?format=json&frame=object" \
-  | jq | perl -ne '/\/profiles\/(.+).json/ and print "  \"$1\",\n";' | sort | uniq
+curl fallback to inspect slugs manually, e.g.:
 
-
-ALL_IGVF_PROFILES from "ORDER" array in the following file (snapshotted at 09/27/2023)
-It's an ordered list of profiles:
-  https://github.com/IGVF-DACC/igvfd/blob/dev/src/igvfd/loadxl.py#L15
-
-Double-check it with profiles retrieved with the following command line
-
-curl "https://api.data.igvf.org/profiles?format=json&frame=object" \
+curl "https://api.data.lattice-data.org/profiles?format=json&frame=object" \
   | jq | perl -ne '/\/profiles\/(.+).json/ and print "  \"$1\",\n";' | sort | uniq
 
 */
 
-const ENCODE = "ENCODE";
-const IGVF = "IGVF";
-
-// These are API endpoints.
-// If there is a UI endpoint then add it to ENDPOINT_MAP_API_TO_UI below
-// Otherwise, the script will use the same endpoint for API and UI
-
-const ENDPOINT_ENCODE_PROD = "https://www.encodeproject.org";
-const ENDPOINT_ENCODE_TEST = "https://test.encodedcc.org";
-const ENCODE_ENDPOINTS = [
-  ENDPOINT_ENCODE_PROD,
-  ENDPOINT_ENCODE_TEST,
+const ENDPOINT_LATTICE_DEV = "https://lattice-api-dev.demo.lattice-data.org";
+const ENDPOINT_LATTICE_SANDBOX = "https://api.sandbox.lattice-data.org";
+const ENDPOINT_LATTICE_STAGING = "https://api.staging.lattice-data.org";
+const ENDPOINT_LATTICE_DATA = "https://api.data.lattice-data.org";
+const LATTICE_ENDPOINTS = [
+  ENDPOINT_LATTICE_DEV,
+  ENDPOINT_LATTICE_SANDBOX,
+  ENDPOINT_LATTICE_STAGING,
+  ENDPOINT_LATTICE_DATA,
 ];
 
-const ENDPOINT_IGVF_STAGING = "https://api.staging.igvf.org";
-const ENDPOINT_IGVF_DATA = "https://api.data.igvf.org";
-const IGVF_ENDPOINTS = [
-  ENDPOINT_IGVF_STAGING,
-  ENDPOINT_IGVF_DATA,
-];
+const DEFAULT_ENDPOINT_READ = ENDPOINT_LATTICE_SANDBOX;
+const DEFAULT_ENDPOINT_WRITE = ENDPOINT_LATTICE_SANDBOX;
 
-const DEFAULT_ENDPOINT_READ = ENDPOINT_IGVF_STAGING;
-const DEFAULT_ENDPOINT_WRITE = ENDPOINT_IGVF_STAGING;
+const ALL_ENDPOINTS = [...LATTICE_ENDPOINTS];
 
-const ALL_ENDPOINTS = [
-  ...ENCODE_ENDPOINTS,
-  ...IGVF_ENDPOINTS,
-];
+// Extra API bases (not in LATTICE_ENDPOINTS): HTTPS only, host must end with .demo.lattice-data.org
+// (e.g. new demo stacks). Official sandbox/staging/data URLs stay on the explicit list above — they
+// do not need to match this pattern. No query/userinfo; trim trailing slash in SheetData.
+const ADDITIONAL_LATTICE_API_ENDPOINT_REGEX =
+  /^https:\/\/[a-z0-9.-]+\.demo\.lattice-data\.org\/?$/i;
 
-// Mapping from API to UI
-// Define only if API and UI endpoints are different
 const ENDPOINT_MAP_API_TO_UI = {
-  "https://api.staging.igvf.org" : "https://staging.igvf.org",
-  "https://api.data.igvf.org" : "https://data.igvf.org",
+  "https://lattice-api-dev.demo.lattice-data.org": "https://lattice-ui-dev.demo.lattice-data.org",
+  "https://api.sandbox.lattice-data.org": "https://sandbox.lattice-data.org",
+  "https://api.staging.lattice-data.org": "https://staging.lattice-data.org",
+  "https://api.data.lattice-data.org": "https://data.lattice-data.org",
 };
 
-const ALL_ENCODE_PROFILES = [
-  "access_key_admin",
-  "aggregate_series",
-  "analysis",
-  "analysis_step",
-  "analysis_step_run",
-  "analysis_step_version",
-  "annotation",
-  "antibody_characterization",
-  "antibody_lot",
-  "atac_alignment_enrichment_quality_metric",
-  "atac_alignment_quality_metric",
-  "atac_library_complexity_quality_metric",
-  "atac_peak_enrichment_quality_metric",
-  "atac_replication_quality_metric",
-  "award",
+const ALL_LATTICE_PROFILES = [
+  "access_key",
   "biosample",
-  "biosample_characterization",
-  "biosample_type",
-  "bismark_quality_metric",
-  "bpnet_quality_metric",
-  "bru_library_quality_metric",
-  "cart",
-  "chia_pet_alignment_quality_metric",
-  "chia_pet_chr_interactions_quality_metric",
-  "chia_pet_peak_enrichment_quality_metric",
-  "chip_alignment_enrichment_quality_metric",
-  "chip_alignment_samstat_quality_metric",
-  "chip_library_quality_metric",
-  "chip_peak_enrichment_quality_metric",
-  "chip_replication_quality_metric",
-  "chipseq_filter_quality_metric",
-  "collection_series",
-  "complexity_xcorr_quality_metric",
-  "computational_model",
-  "correlation_quality_metric",
-  "cpg_correlation_quality_metric",
-  "differential_accessibility_series",
-  "differentiation_series",
-  "disease_series",
-  "dnase_alignment_quality_metric",
-  "dnase_footprinting_quality_metric",
+  "controlled_term",
   "document",
-  "donor_characterization",
-  "duplicates_quality_metric",
-  "edwbamstats_quality_metric",
-  "experiment",
-  "experiment_series",
+  "donor",
+  "droplet_based_library",
+  "experimental_condition",
   "file",
-  "filtering_quality_metric",
-  "fly_donor",
-  "functional_characterization_experiment",
-  "functional_characterization_series",
-  "gembs_alignment_quality_metric",
-  "gencode_category_quality_metric",
-  "gene",
-  "gene_quantification_quality_metric",
-  "generic_quality_metric",
-  "gene_silencing_series",
+  "file_set",
   "genetic_modification",
-  "genetic_modification_characterization",
-  "gene_type_quantification_quality_metric",
-  "hic_quality_metric",
-  "histone_chipseq_quality_metric",
-  "hotspot_quality_metric",
   "human_donor",
-  "idr_quality_metric",
-  "idr_summary_quality_metric",
   "image",
+  "cell_line",
+  "organoid",
   "lab",
   "library",
-  "long_read_rna_mapping_quality_metric",
-  "long_read_rna_quantification_quality_metric",
-  "mad_quality_metric",
-  "manatee_donor",
-  "matched_set",
-  "micro_rna_mapping_quality_metric",
-  "micro_rna_quantification_quality_metric",
-  "mouse_donor",
-  "multiomics_series",
-  "organism",
-  "organism_development_series",
+  "matrix_file_set",
+  "non_human_donor",
   "page",
-  "pipeline",
-  "platform",
-  "project",
-  "publication",
-  "publication_data",
-  "pulse_chase_time_series",
-  "quality_standard",
-  "reference",
-  "reference_epigenome",
-  "replicate",
-  "replication_timing_series",
-  "rna_expression",
-  "samtools_flagstats_quality_metric",
-  "samtools_stats_quality_metric",
-  "sc_atac_alignment_quality_metric",
-  "sc_atac_analysis_quality_metric",
-  "sc_atac_counts_summary_quality_metric",
-  "sc_atac_library_complexity_quality_metric",
-  "sc_atac_multiplet_quality_metric",
-  "sc_atac_read_quality_metric",
-  "scrna_seq_counts_summary_quality_metric",
-  "segway_quality_metric",
-  "single_cell_rna_series",
-  "single_cell_unit",
-  "software",
-  "software_version",
-  "source",
-  "star_quality_metric",
-  "star_solo_quality_metric",
-  "target",
-  "transgenic_enhancer_experiment",
-  "treatment",
-  "treatment_concentration_series",
-  "treatment_time_series",
-  "trimming_quality_metric",
-  "ucsc_browser_composite",
-  "user",
-  "worm_donor",
-];
-const CORE_SET_ENCODE_PROFILES = [
-  "experiment",
-];
-
-const ALL_IGVF_PROFILES = [
-  "access_key",
-  "alignment_file",
-  "analysis_set",
-  "analysis_step",
-  "analysis_step_version",
-  "assay_term",
-  "auxiliary_set",
-  "award",
-  "biomarker",
-  "configuration_file",
-  "construct_library_set",
-  "crispr_modification",
-  "curated_set",
-  "degron_modification",
-  "document",
-  "gene",
-  "human_donor",
-  "image",
-  "image_file",
-  "in_vitro_system",
-  "index_file",
-  "institutional_certificate",
-  "lab",
-  "matrix_file",
-  "measurement_set",
-  "model_file",
-  "model_set",
-  "mpra_quality_metric",
-  "multiplexed_sample",
-  "open_reading_frame",
-  "page",
-  "perturb_seq_quality_metric",
-  "phenotype_term",
-  "phenotypic_feature",
-  "platform_term",
-  "prediction_set",
-  "primary_cell",
-  "pseudobulk_set",
-  "publication",
-  "reference_file",
-  "rodent_donor",
-  "sample_term",
+  "plate_based_library",
+  "primary_cell_culture",
+  "processed_matrix_file",
+  "raw_matrix_file",
   "sequence_file",
-  "signal_file",
-  "single_cell_atac_seq_quality_metric",
-  "single_cell_rna_seq_quality_metric",
-  "software",
-  "software_version",
-  "source",
-  "starr_seq_quality_metric",
+  "sequence_file_set",
   "tabular_file",
-  "technical_sample",
   "tissue",
   "treatment",
   "user",
-  "whole_organism",
-  "workflow",
 ];
 
-const IGVF_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION = [
+const LATTICE_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION = [
   "access_key",
   "award",
   "lab",
   "gene",
-  "assay_term",
-  "phenotype_term",
-  "platform_term",
-  "sample_term",
   "page",
   "source",
   "user",
-  "human_genomic_variant",
-  "construct_library",
-  "prediction",
-  "model",
 ];
 
-const CORE_SET_IGVF_PROFILES = [
-  "document",
-  "measurement_set",
-  "sequence_file",
-];
-
-function isEncodeEndpoint(endpoint) {
-  return ENCODE_ENDPOINTS.includes(endpoint);
-}
-
-function isIgvfEndpoint(endpoint) {
-  return IGVF_ENDPOINTS.includes(endpoint);
+function isAdditionalLatticeApiEndpointByRegex(endpoint) {
+  if (!endpoint || typeof endpoint !== "string") {
+    return false;
+  }
+  if (endpoint.indexOf("@") !== -1 || endpoint.indexOf("?") !== -1 || endpoint.indexOf("#") !== -1) {
+    return false;
+  }
+  return ADDITIONAL_LATTICE_API_ENDPOINT_REGEX.test(endpoint);
 }
 
 function isValidEndpoint(endpoint) {
-  return ALL_ENDPOINTS.includes(endpoint);
-}
-
-function isEncodeUrl(url) {
-  return ENCODE_ENDPOINTS.some(endpoint => {
-    if(url.startsWith(endpoint)) {
-      return true;
-    }
-  });
-}
-
-function isIgvfUrl(url) {
-  return IGVF_ENDPOINTS.some(endpoint => {
-    if(url.startsWith(endpoint)) {
-      return true;
-    }
-  });
-}
-
-function getServerFromUrl(url) {
-  if (isEncodeUrl(url)) {
-    return ENCODE;
-  } else if (isIgvfUrl(url)) {
-    return IGVF;
-  }
+  return ALL_ENDPOINTS.includes(endpoint) || isAdditionalLatticeApiEndpointByRegex(endpoint);
 }
 
 function getAllProfiles(endpoint) {
-  if (isEncodeEndpoint(endpoint)) {
-    return ALL_ENCODE_PROFILES;
-  } else if (isIgvfEndpoint(endpoint)) {
-    return ALL_IGVF_PROFILES;
-  }
+  return getResolvedProfileSlugList(endpoint);
 }
 
 function getUIEndpoint(endpoint) {
   if (ENDPOINT_MAP_API_TO_UI.hasOwnProperty(endpoint)) {
     return ENDPOINT_MAP_API_TO_UI[endpoint];
   }
+  // Regex-allowed *.demo.lattice-data.org API bases not in the map: use API origin for UI links (search, etc.).
+  // If API and UI differ for a new host, add an explicit entry to ENDPOINT_MAP_API_TO_UI.
   return endpoint;
 }
 
-function getIgvfEndpointsAvailableForUsers() {
-  return IGVF_ENDPOINTS;
+function usesLatticePortalApi(endpoint) {
+  return isValidEndpoint(endpoint);
+}
+
+function getLatticeEndpointsAvailableForUsers() {
+  return LATTICE_ENDPOINTS;
 }
 
 function getAllProfilesForTemplateGeneration(endpoint) {
-  if (isEncodeEndpoint(endpoint)) {
-    return ALL_ENCODE_PROFILES;
-  } else if (isIgvfEndpoint(endpoint)) {
-    // apply exclusion list for igvf profiles
-    return ALL_IGVF_PROFILES
-      .filter(item => !IGVF_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION.includes(item));
+  var slugs = getAllProfiles(endpoint);
+  if (!slugs || !slugs.length) {
+    return [];
   }
+  return slugs.filter(function (item) {
+    return !LATTICE_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION.includes(item);
+  });
 }

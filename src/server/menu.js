@@ -1,6 +1,6 @@
 global.onOpen = () => {
   const version = global.getScriptVersion();
-  const menu = SpreadsheetApp.getUi().createMenu(`IGVF ${version}`);
+  const menu = SpreadsheetApp.getUi().createMenu(`Lattice ${version}`);
 
   menu.addItem('Search', 'search');
   menu.addSeparator();
@@ -26,6 +26,7 @@ global.onOpen = () => {
   submenuTools.addItem('Create a new sheet with updated profile schema', 'updateCurrentSheet');
   submenuTools.addSeparator();
   submenuTools.addItem('Create template sheets for all profiles', 'createSheetsForAllProfiles');
+  submenuTools.addItem('Refresh profile list from portal', 'refreshProfileSlugCacheForUser');
   submenuTools.addSeparator();
   submenuTools.addItem('Export selected row to JSON', 'convertSelectedRowToJson');
   submenuTools.addItem('Export sheet to JSON', 'exportToJsonText');
@@ -41,14 +42,13 @@ global.onOpen = () => {
   submenuDeveloper.addItem('Show spreadsheet developer metadata', 'showSpreadsheetAllDevMetadata');
   submenuDeveloper.addItem("Set current sheet's last used schema version", 'setLastUsedSchemaVersion');
   submenuDeveloper.addSeparator();
-  submenuDeveloper.addItem('Authorize for ENCODE', 'authorizeForEncode');
   submenuTools.addSubMenu(submenuDeveloper);
 
   menu.addSubMenu(submenuTools);
   menu.addSeparator();
 
   menu.addItem('Set endpoint', 'setDefaultEndpoint');
-  menu.addItem('Authorize for IGVF', 'authorizeForIgvf');
+  menu.addItem('Authorize for LATTICE', 'authorizeForLattice');
   menu.addSeparator();
   menu.addItem('Check for script update', 'checkForUpdate');
   menu.addItem('README', 'openToolGithubPage');

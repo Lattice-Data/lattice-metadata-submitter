@@ -30,7 +30,7 @@ const IDENTIFYING_PROP_PRIORITY = [
   HEADER_PROP_NAME
 ];
 
-// https://github.com/ENCODE-DCC/encoded/blob/dev/docs/auth.rst#permissions
+// Lattice uses access key + secret (Basic auth); see portal Profile for credentials.
 // This is for "permission" property
 const ADMIN_OR_SYSTEM_PERMISSIONS = [
   "add_unvalidated",
@@ -64,13 +64,18 @@ const SELECTED_PROP_KEYS_FOR_TOOLTIP = [
 ];
 
 function isValidProfileName(profileName, endpoint) {
-  for(var name of getAllProfiles(endpoint)) {
-    // make capitalized sentence from snakecase 
+  var names = getAllProfiles(endpoint);
+  if (!names || !names.length) {
+    return false;
+  }
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
     var capitalizedName = capitalizeWord(snakeToCamel(name));
     if ([name, capitalizedName].includes(profileName)) {
       return true;
     }
   }
+  return false;
 }
 
 function makeProfileUrl(profileName, endpoint, format="json") {
@@ -113,9 +118,7 @@ function makeSearchUrlForProp(profile, prop, endpoint) {
   // Search uses UI endpoint so convert to UI endpoint if available
   const uiEndpoint = getUIEndpoint(endpoint);
 
-  if (isEncodeEndpoint(endpoint)) {
-    return `${uiEndpoint}/search/?type=${linkTo}`;
-  } else {
+  if (usesLatticePortalApi(endpoint)) {
     return `${uiEndpoint}/search?type=${linkTo}`;
   }
 }
@@ -431,7 +434,7 @@ function checkProfile() {
     if (!profile) {
       alertBox(
         "Found profile name but couldn't get profile from portal. Wrong credentials?\n" +
-        "Go to the menu 'IGVF' -> 'Authorize for IGVF' and input access key and secret pair."
+        "Go to the menu 'Lattice' -> 'Authorize for LATTICE' and enter your access key and secret pair."
       );
       return;
     }
@@ -457,7 +460,7 @@ function checkProfile() {
 
   alertBox(
     "No profile name found.\n" +
-    'Go to the menu "IGVF" -> "Set profile name".'
+    'Go to the menu "Lattice" -> "Set profile name".'
   );
 }
 
@@ -472,7 +475,7 @@ function checkProfileForPost() {
     if (!profile) {
       alertBox(
         "Found profile name but couldn't get profile from portal. Wrong credentials?\n" +
-        "Go to the menu 'IGVF' -> 'Authorize for IGVF' and input access key and secret pair."
+        "Go to the menu 'Lattice' -> 'Authorize for LATTICE' and enter your access key and secret pair."
       );
       return;
     }
@@ -496,6 +499,6 @@ function checkProfileForPost() {
 
   alertBox(
     "No profile name found.\n" +
-    'Go to the menu "IGVF" -> "Set profile name".'
+    'Go to the menu "Lattice" -> "Set profile name".'
   );
 }

@@ -23,14 +23,14 @@ Add a package of interest to `package.json` and make a new `ANY_GOOD_NAME.js` fi
 Take a look at `src/server/jsonSchema.js` and see how `validateJson()` is called in Apps Script files in `functions/`.
 
 
-### CLI version of the submitter
+### CLI utilities (related ecosystem)
 
-There is a CLI version https://github.com/IGVF-DACC/igvf_utils. It's forked from `encode_utils`.
+The broader IGVF project ships command-line helpers such as [igvf_utils](https://github.com/IGVF-DACC/igvf_utils) (forked from `encode_utils`). This spreadsheet submitter is maintained for **Lattice** only; use Lattice portal docs for API credentials and profile URLs.
 
 
-### Apps Script Quota and why profiles are hard-coded.
+### Apps Script Quota and profile type names
 
-Apps Script is free but limited. There is a quota for many actions. e.g. Number of URL fetch requests per day. I tried to minimize number of requests so had to hard-code list of valid profiles. So update `ALL_IGVF_PROFILES` array in `functions/Endpoint.js` whenever there is a new release for the portal.
+Apps Script URL fetch quotas apply. Profile type slugs are resolved by calling `GET {endpoint}/profiles?format=json&frame=object`, cached in [`functions/ProfileRegistry.js`](functions/ProfileRegistry.js) (`CacheService`, TTL up to six hours), with fallback to `ALL_LATTICE_PROFILES` in [`functions/Endpoint.js`](functions/Endpoint.js) when the portal is unreachable. Refresh manually via **Tools → Refresh profile list from portal** after releases. The four primary API URLs are fixed in `LATTICE_ENDPOINTS` in `Endpoint.js` (sandbox/staging/data do not need `.demo` in the hostname). Separately, `ADDITIONAL_LATTICE_API_ENDPOINT_REGEX` allows **extra** HTTPS hosts that end with `.demo.lattice-data.org` only.
 
 
 ### How to debug in Apps Script
@@ -50,21 +50,14 @@ If a user clicks on `Check for script update` menu then the code wil check the l
 See [`INSTALL.md`](INSTALL.md) for details about how to create a new Google Sheet document.
 
 And then update the followings:
-- var `SCRIPT_VERSION` in `functions/Version.gs`.
+- var `SCRIPT_VERSION` in `functions/Version.js`.
 - Google Sheet URL and version number in `README.md`.
 - Version number in `INSTALL.md`.
 
 
-### How to update IGVF profiles to the latest
+### How to update Lattice profiles to the latest
 
-For Google Apps Script quota-related reasons, list of valid profiles for both platforms (ENCODE and IGVF) are hardcoded in `functions/Endpoint.gs`. You can find a shell command line to get the latest sorted profiles directly from the production server.
-
-Check comments in the above file. For example, to get the latest IGVF profiles, run the following:
-```
-$ curl "https://api.data.igvf.org/profiles?format=json&frame=object" \
-  | jq | perl -ne '/\/profiles\/(.+).json/ and print "  \"$1\",\n";' | sort | uniq
-```
-And then replace contents of var `ALL_IGVF_PROFILES` with the result.
+For quota-related reasons, valid profile names are hardcoded in `functions/Endpoint.js`. See the comment at the top of that file for a shell one-liner that lists profile slugs from a running Lattice API (for example production data). Replace the contents of `ALL_LATTICE_PROFILES` with the sorted result.
 
 
 ### Make changes to the local code and apply it to remote Sheet
@@ -75,3 +68,10 @@ $ npm run deploy
 ```
 
 Make sure that target Apps Script ID matches with that defined in `.clasp.json`.
+
+### Automated tests
+
+Run `npm test` before opening a PR. This runs Jest checks on `src/server/menu.js` and on the webpack output `dist/functions.js` (the suite runs `npm run build` first). Optional byte-level compare of the merged functions bundle against `fixtures/manual/functions.gs`: `FULL_PARITY=1 npm run test:parity` (usually fails unless file order matches the manual snapshot).
+
+On GitHub, every **push** and **pull request** runs the same install, build, and test steps via [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+
