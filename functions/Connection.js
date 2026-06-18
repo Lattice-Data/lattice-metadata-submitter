@@ -107,6 +107,46 @@ function restSubmit(url, payloadJson, method) {
   return UrlFetchApp.fetch(url, params);
 }
 
+/**
+ * Concurrently issues a batch of submissions via UrlFetchApp.fetchAll.
+ * `requests` is an array of {url, method, payloadJson}. The returned
+ * HTTPResponse array preserves the input order so callers can map back
+ * to the originating row.
+ *
+ * Auth (Basic) is added uniformly using the stored credentials. The
+ * credentials are read once for the whole batch.
+ *
+ * Limits to keep in mind when chunking calls:
+ *  - Each individual response is still bounded by ~60 s.
+ *  - Total payload size across the batch is capped (Apps Script docs say
+ *    50 MB for fetchAll). Callers with attachments should use small chunks
+ *    or fall back to per-row restSubmit.
+ */
+function restSubmitAll(requests) {
+  if (!requests || requests.length === 0) {
+    return [];
+  }
+  var username = getUsername();
+  var password = getPassword();
+  var authHeaders = (username && password) ? makeAuthHeaders(username, password) : null;
+
+  var fetchParams = requests.map(function(req) {
+    var params = {
+      "url": req.url,
+      "method": req.method,
+      "contentType": "application/json",
+      "muteHttpExceptions": true,
+      "payload": JSON.stringify(req.payloadJson)
+    };
+    if (authHeaders) {
+      params["headers"] = authHeaders;
+    }
+    return params;
+  });
+
+  return UrlFetchApp.fetchAll(fetchParams);
+}
+
 //////////// developer only (for debugging purpose) //////////
 
 const PROPERTY_AWS_ACCESS_KEY = "awsAccessKey";

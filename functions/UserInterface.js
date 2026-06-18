@@ -219,9 +219,58 @@ function convertSelectedRowToJson() {
   SpreadsheetApp.getUi().showModalDialog(htmlOutput, `Row: ${currentRow}`);
 }
 
+// Builds the per-run timing summary appended to post-submission alerts so the
+// user can see actual portal latency and decide whether to tune SUBMIT_FETCH_CHUNK_SIZE.
+function formatSubmissionStats(stats) {
+  if (!stats || !stats.networkChunks) {
+    return "";
+  }
+  var netSec = stats.networkMs / 1000;
+  var readSec = stats.sheetReadMs / 1000;
+  var writeSec = stats.sheetWriteMs / 1000;
+  var avgBatchMs = stats.networkMs / stats.networkChunks;
+  var effectivePerRowMs = stats.rowsSubmitted > 0 ? stats.networkMs / stats.rowsSubmitted : 0;
+  var summary =
+    "\n\nTiming:" +
+    "\n- Network: " + netSec.toFixed(1) + "s across " + stats.networkChunks +
+      " batch(es) of up to " + stats.chunkSize +
+      " (avg batch round-trip: " + avgBatchMs.toFixed(0) + " ms)." +
+    "\n- Sheet read: " + readSec.toFixed(1) + "s; sheet write: " + writeSec.toFixed(1) + "s." +
+    "\n- Effective per-row wall time (network / rows submitted): " + effectivePerRowMs.toFixed(0) + " ms.";
+  if (stats.pauses > 0) {
+    summary += "\n- Pauses for resume: " + stats.pauses + ".";
+  }
+  return summary;
+}
+
+function alertSubmissionResult(method, endpoint, result) {
+  if (result.paused) {
+    alertBox(
+      `Submitted ${result.numSubmitted} of ${result.total} ${method} row(s) so far.\n\n` +
+      `Reached the time budget for this slice. A background trigger will resume automatically in ~30 seconds.\n\n` +
+      `Please do NOT edit the sheet until the run completes (toast notifications will appear when it resumes and finishes).` +
+      formatSubmissionStats(result.stats)
+    );
+  } else {
+    alertBox(
+      `Submitted (${method}) ${result.numSubmitted} of ${result.total} row(s) to ${endpoint}.` +
+      formatSubmissionStats(result.stats)
+    );
+  }
+}
+
 function putAll() {
   if (!checkProfile()) {
     return;
+  }
+
+  if (isSubmitResumeInFlight()) {
+    if (!alertBoxOkCancel(
+      "A previous submission run is currently paused and waiting to resume.\n\n" +
+      "Starting a new run will overwrite the resume state. Continue anyway?"
+    )) {
+      return;
+    }
   }
 
   var sheet = getCurrentSheet();
@@ -230,9 +279,9 @@ function putAll() {
   if (numData === 0) {
     alertBox(`Found no data to submit to the portal.`);
     return;
-  }  
+  }
   if (!alertBoxOkCancel(
-    `Found ${numData} data row(s).\n\n` + 
+    `Found ${numData} data row(s).\n\n` +
     "PUT action will REPLACE metadata on the portal with those on the sheet. " +
     "Therefore, any properties missing on the sheet will also be REMOVED from portal's metadata." +
     "If you are not an admin and just want to patch non-empty values of properties on the sheet, use PATCH instead.\n\n" +
@@ -240,10 +289,10 @@ function putAll() {
     return;
   }
 
-  var numSubmitted = submitSheetToPortal(
+  var result = submitSheetToPortal(
     sheet, getProfileName(), getEndpoint(), getEndpoint(), method="PUT"
   );
-  alertBox(`Submitted (PUT) ${numSubmitted} rows to ${getEndpoint()}.`);
+  alertSubmissionResult("PUT", getEndpoint(), result);
 }
 
 function patchSelected() {
@@ -272,11 +321,11 @@ function patchSelected() {
     return;
   }
 
-  var numSubmitted = submitSheetToPortal(
+  var result = submitSheetToPortal(
     sheet, getProfileName(), getEndpoint(), getEndpoint(), method="PATCH",
     selectedColsForPatch=selectedCols,
   );
-  alertBox(`PATCHed ${numSubmitted} rows to ${getEndpoint()}.`);
+  alertSubmissionResult("PATCH", getEndpoint(), result);
 
   applyProfileToSheet();
 }
@@ -300,15 +349,24 @@ function patchAll() {
     return;
   } 
 
-  var numSubmitted = submitSheetToPortal(
+  var result = submitSheetToPortal(
     sheet, getProfileName(), getEndpoint(), getEndpoint(), method="PATCH"
   );
-  alertBox(`Submitted (PATCH) ${numSubmitted} rows to ${getEndpoint()}.`);
+  alertSubmissionResult("PATCH", getEndpoint(), result);
 }
 
 function postAll() {
   if (!checkProfileForPost()) {
     return;
+  }
+
+  if (isSubmitResumeInFlight()) {
+    if (!alertBoxOkCancel(
+      "A previous submission run is currently paused and waiting to resume.\n\n" +
+      "Starting a new run will overwrite the resume state. Continue anyway?"
+    )) {
+      return;
+    }
   }
 
   var sheet = getCurrentSheet();
@@ -317,7 +375,7 @@ function postAll() {
   if (numData === 0) {
     alertBox(`Found no data to submit to the portal.`);
     return;
-  }  
+  }
   if (!alertBoxOkCancel(
     `Found ${numData} data row(s).\n\n` +
     "POST action will submit new objects (rows on the sheet) to the portal.\n\n" +
@@ -329,10 +387,10 @@ function postAll() {
     return;
   }
 
-  var numSubmitted = submitSheetToPortal(
+  var result = submitSheetToPortal(
     sheet, getProfileName(), getEndpoint(), getEndpoint(), method="POST"
   );
-  alertBox(`Submitted (POST) ${numSubmitted} rows to ${getEndpoint()}.`);
+  alertSubmissionResult("POST", getEndpoint(), result);
 
   applyProfileToSheet();
 }

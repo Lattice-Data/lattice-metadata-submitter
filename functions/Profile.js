@@ -237,7 +237,20 @@ function getDefaultForProp(profile, prop) {
   return null;
 }
 
+// Per-execution profile cache. Apps Script resets module state at the start of
+// every user/trigger execution, so this transparently dedupes the multiple
+// getProfile() calls that fire during a single POST/PATCH/PUT run (e.g.
+// checkProfileForPost + submitSheetToPortal) without bleeding across runs.
+var _PROFILE_CACHE_PER_EXECUTION;
+
 function getProfile(profileName, endpoint) {
+  if (!_PROFILE_CACHE_PER_EXECUTION) {
+    _PROFILE_CACHE_PER_EXECUTION = {};
+  }
+  var cacheKey = profileName + "|" + endpoint;
+  if (_PROFILE_CACHE_PER_EXECUTION.hasOwnProperty(cacheKey)) {
+    return _PROFILE_CACHE_PER_EXECUTION[cacheKey];
+  }
   var url = makeProfileUrl(profileName, endpoint);
   var response = restGet(url);
   if (response.getResponseCode() === 200) {
@@ -249,7 +262,9 @@ function getProfile(profileName, endpoint) {
     fixed_text = raw_text
       .replace(/\\\\S\\\\:/g, "\\\\S:")
       .replace(/\\\\-/g, "-");
-    return JSON.parse(fixed_text);
+    var parsed = JSON.parse(fixed_text);
+    _PROFILE_CACHE_PER_EXECUTION[cacheKey] = parsed;
+    return parsed;
   }
 }
 

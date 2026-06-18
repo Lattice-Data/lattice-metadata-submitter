@@ -312,40 +312,40 @@ function getSelectedColumns(sheet, keepCommentedProps=true) {
   return cols;
 }
 
-function rowToJson(sheet, row, keepCommentedProps, bypassGoogleAutoParsing) {  
+function rowToJson(sheet, row, keepCommentedProps, bypassGoogleAutoParsing) {
   // if bypassGoogleAutoParsing is set then use displayValue (string)
   // instead of auto-parsed value
   var currentProps = getCellValuesInRow(sheet, HEADER_ROW);
   var range = sheet.getRange(row, 1, 1, currentProps.length);
   var rowDataVals = range.getValues()[0];
   var rowDataDisplayVals = range.getDisplayValues()[0];
+  return rowDataToJson(currentProps, rowDataVals, rowDataDisplayVals, keepCommentedProps, bypassGoogleAutoParsing);
+}
+
+// Same conversion rules as rowToJson, but operates on pre-read arrays.
+// Used by the batched submitter to avoid one getRange/getValues per row.
+function rowDataToJson(headerProps, rowDataVals, rowDataDisplayVals, keepCommentedProps, bypassGoogleAutoParsing) {
   var result = {};
-
-  for (var [i, data] of rowDataVals.entries()) {
-    var prop = currentProps[i];
-
+  for (var i = 0; i < rowDataVals.length; i++) {
+    var prop = headerProps[i];
+    if (!prop) {
+      continue;
+    }
     if (prop.startsWith("#") && !keepCommentedProps) {
       continue;
     }
-
-    var val = data;
+    var val = rowDataVals[i];
     if (val === "") {
-      Logger.log("rowToJson (skipping prop with empty val): " + prop);
       continue;
     }
-
     if (bypassGoogleAutoParsing && getType(val) == "object") {
       val = rowDataDisplayVals[i];
-      Logger.log("rowToJson (use displayValue for object): " + prop + " " + val);
     }
-
     if (getType(val) === "string") {
-      // if array/object then JSON.parse it
       if (isJsonString(val) || isArrayString(val)) {
         val = JSON.parse(val);
       }
     }
-
     result[prop] = val;
   }
   return result;
