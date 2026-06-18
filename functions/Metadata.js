@@ -279,15 +279,48 @@ function readSheetForSubmission(sheet) {
   var dataRange = sheet.getRange(HEADER_ROW + 1, 1, lastRow - HEADER_ROW, lastCol);
   var values = dataRange.getValues();
   var displayValues = dataRange.getDisplayValues();
-  // isRowHiddenByUser is per-row only; loop is unavoidable but stays in pure JS once cached.
-  var hiddenRows = new Array(values.length);
-  for (var i = 0; i < hiddenRows.length; i++) {
-    hiddenRows[i] = sheet.isRowHiddenByUser(HEADER_ROW + 1 + i);
-  }
+  var hiddenRows = readHiddenRowsBulk(sheet, HEADER_ROW + 1, lastRow);
   return {
     header: header, values: values, displayValues: displayValues,
     hiddenRows: hiddenRows, lastRow: lastRow, lastCol: lastCol,
   };
+}
+
+// One Advanced Sheets API call replaces N synchronous isRowHiddenByUser calls.
+// At ~300 rows the per-row path took ~30 s; the advanced call is sub-second.
+// Falls back transparently if the advanced service isn't enabled.
+function readHiddenRowsBulk(sheet, startRow, endRow) {
+  var count = endRow - startRow + 1;
+  if (count <= 0) {
+    return [];
+  }
+  if (typeof Sheets !== "undefined" && Sheets && Sheets.Spreadsheets) {
+    try {
+      var sheetName = sheet.getName();
+      // Escape single-quote in sheet name per Sheets API A1 grammar.
+      var quotedName = "'" + sheetName.replace(/'/g, "''") + "'";
+      var range = quotedName + "!A" + startRow + ":A" + endRow;
+      var resp = Sheets.Spreadsheets.get(sheet.getParent().getId(), {
+        ranges: [range],
+        fields: "sheets(data(rowMetadata.hiddenByUser))",
+      });
+      var rowMeta = (resp && resp.sheets && resp.sheets[0] &&
+        resp.sheets[0].data && resp.sheets[0].data[0] &&
+        resp.sheets[0].data[0].rowMetadata) || [];
+      var hidden = new Array(count);
+      for (var i = 0; i < count; i++) {
+        hidden[i] = !!(rowMeta[i] && rowMeta[i].hiddenByUser);
+      }
+      return hidden;
+    } catch (e) {
+      Logger.log("readHiddenRowsBulk: Advanced Sheets API failed (" + e + "); falling back to per-row check.");
+    }
+  }
+  var fallback = new Array(count);
+  for (var k = 0; k < count; k++) {
+    fallback[k] = sheet.isRowHiddenByUser(startRow + k);
+  }
+  return fallback;
 }
 
 function findIdentifyingPropValFromCache(header, rowVals, profile) {

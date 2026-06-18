@@ -3,6 +3,11 @@
   "runtimeVersion": "V8",
   "dependencies": {
     "enabledAdvancedServices": [
+      {
+        "userSymbol": "Sheets",
+        "serviceId": "sheets",
+        "version": "v4"
+      }
     ],
     "libraries": [
       {
