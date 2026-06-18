@@ -84,13 +84,26 @@ function getSpreadsheetAllDevMetadata() {
 }
 
 function getNumMetadataInSheet(sheet, ignoreHiddenRows=false) {
-  var numRows = 0;
-  for (var row = HEADER_ROW + 1; row <= getLastRow(sheet); row++) {
-    if (!ignoreHiddenRows || ignoreHiddenRows && !isRowHidden(sheet, row)) {
-      numRows += 1;
+  var lastRow = getLastRow(sheet);
+  if (lastRow <= HEADER_ROW) {
+    return 0;
+  }
+  var dataRowCount = lastRow - HEADER_ROW;
+  if (!ignoreHiddenRows) {
+    return dataRowCount;
+  }
+  // Used by postAll/patchAll/putAll/getMetadataForAll to populate the
+  // pre-submission confirmation dialog. The per-row isRowHiddenByUser
+  // loop was costing ~50-100 ms per row (~30 s on a 300-row sheet)
+  // before the user ever saw the confirmation prompt.
+  var hidden = readHiddenRowsBulk(sheet, HEADER_ROW + 1, lastRow);
+  var visible = 0;
+  for (var i = 0; i < hidden.length; i++) {
+    if (!hidden[i]) {
+      visible += 1;
     }
   }
-  return numRows;
+  return visible;
 }
 
 function isSheetEmpty(sheet) {
@@ -312,40 +325,40 @@ function getSelectedColumns(sheet, keepCommentedProps=true) {
   return cols;
 }
 
-function rowToJson(sheet, row, keepCommentedProps, bypassGoogleAutoParsing) {  
+function rowToJson(sheet, row, keepCommentedProps, bypassGoogleAutoParsing) {
   // if bypassGoogleAutoParsing is set then use displayValue (string)
   // instead of auto-parsed value
   var currentProps = getCellValuesInRow(sheet, HEADER_ROW);
   var range = sheet.getRange(row, 1, 1, currentProps.length);
   var rowDataVals = range.getValues()[0];
   var rowDataDisplayVals = range.getDisplayValues()[0];
+  return rowDataToJson(currentProps, rowDataVals, rowDataDisplayVals, keepCommentedProps, bypassGoogleAutoParsing);
+}
+
+// Same conversion rules as rowToJson, but operates on pre-read arrays.
+// Used by the batched submitter to avoid one getRange/getValues per row.
+function rowDataToJson(headerProps, rowDataVals, rowDataDisplayVals, keepCommentedProps, bypassGoogleAutoParsing) {
   var result = {};
-
-  for (var [i, data] of rowDataVals.entries()) {
-    var prop = currentProps[i];
-
+  for (var i = 0; i < rowDataVals.length; i++) {
+    var prop = headerProps[i];
+    if (!prop) {
+      continue;
+    }
     if (prop.startsWith("#") && !keepCommentedProps) {
       continue;
     }
-
-    var val = data;
+    var val = rowDataVals[i];
     if (val === "") {
-      Logger.log("rowToJson (skipping prop with empty val): " + prop);
       continue;
     }
-
     if (bypassGoogleAutoParsing && getType(val) == "object") {
       val = rowDataDisplayVals[i];
-      Logger.log("rowToJson (use displayValue for object): " + prop + " " + val);
     }
-
     if (getType(val) === "string") {
-      // if array/object then JSON.parse it
       if (isJsonString(val) || isArrayString(val)) {
         val = JSON.parse(val);
       }
     }
-
     result[prop] = val;
   }
   return result;

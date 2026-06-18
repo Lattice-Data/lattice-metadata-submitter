@@ -1,4 +1,4 @@
-SCRIPT_VERSION='v0.4.0';
+SCRIPT_VERSION='v0.5.0';
 URL_LATEST_RELEASE_LATEST='https://github.com/Lattice-Data/lattice-metadata-submitter/releases/latest';
 RELEASE_TAG_PATH_MARKER='/releases/tag/';
 URL_PREFIX_UPDATE_HELP='https://github.com/Lattice-Data/lattice-metadata-submitter/blob/';

@@ -229,42 +229,148 @@ function setAttachment(attachmentJson) {
   return attachment;
 }
 
-function submitSheetToPortal(
-  sheet, profileName, endpointForPut, endpointForProfile, method, selectedColsForPatch=[]
-) {
-  // returns actual number of submitted rows
-  var profile = getProfile(profileName, endpointForProfile);
+// Submission batching/continuation knobs (see DEV.md for rationale).
+// FETCH_CHUNK_SIZE balances throughput vs. per-batch payload size cap; tune
+// lower if the portal starts returning 429s under fan-out.
+const SUBMIT_FETCH_CHUNK_SIZE = 30;
+// Apps Script user-triggered runs cap at ~6 min. We pause well before that to
+// leave headroom for the trailing sheet write + trigger creation.
+const SUBMIT_TIME_BUDGET_MS = 5 * 60 * 1000;
+const SUBMIT_RESUME_TRIGGER_FUNCTION = 'resumeSubmitToPortal';
+const SUBMIT_RESUME_STATE_KEY = 'LATTICE_SUBMIT_RESUME_STATE';
+const SUBMIT_RESUME_DELAY_MS = 30 * 1000;
 
-  const numData = getNumMetadataInSheet(sheet);
-  var numSubmitted = 0;
+function newSubmissionStats(chunkSize) {
+  return {
+    sheetReadMs: 0,
+    sheetWriteMs: 0,
+    networkMs: 0,
+    networkChunks: 0,
+    chunkSize: chunkSize,
+    rowsSubmitted: 0,
+    pauses: 0,
+  };
+}
 
-  for (var row = HEADER_ROW + 1; row <= numData + HEADER_ROW; row++) {
-    var jsonBeforeTypeCast = rowToJson(
-      sheet, row, keepCommentedProps=true, bypassGoogleAutoParsing=true,
-    );
+// Restore stats from a serialized resume state (or seed a fresh one).
+function restoreSubmissionStats(serialized, chunkSize) {
+  var stats = newSubmissionStats(chunkSize);
+  if (serialized) {
+    Object.keys(serialized).forEach(function(k) {
+      if (stats.hasOwnProperty(k)) {
+        stats[k] = serialized[k];
+      }
+    });
+  }
+  return stats;
+}
 
-    if (isRowHidden(sheet, row)) {
+function readSheetForSubmission(sheet) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < HEADER_ROW + 1 || lastCol < 1) {
+    return {
+      header: [], values: [], displayValues: [], hiddenRows: [],
+      lastRow: lastRow, lastCol: lastCol,
+    };
+  }
+  var headerRange = sheet.getRange(HEADER_ROW, 1, 1, lastCol);
+  var header = headerRange.getValues()[0];
+  var dataRange = sheet.getRange(HEADER_ROW + 1, 1, lastRow - HEADER_ROW, lastCol);
+  var values = dataRange.getValues();
+  var displayValues = dataRange.getDisplayValues();
+  var hiddenRows = readHiddenRowsBulk(sheet, HEADER_ROW + 1, lastRow);
+  return {
+    header: header, values: values, displayValues: displayValues,
+    hiddenRows: hiddenRows, lastRow: lastRow, lastCol: lastCol,
+  };
+}
+
+// One Advanced Sheets API call replaces N synchronous isRowHiddenByUser calls.
+// At ~300 rows the per-row path took ~30 s; the advanced call is sub-second.
+// Falls back transparently if the advanced service isn't enabled.
+function readHiddenRowsBulk(sheet, startRow, endRow) {
+  var count = endRow - startRow + 1;
+  if (count <= 0) {
+    return [];
+  }
+  if (typeof Sheets !== "undefined" && Sheets && Sheets.Spreadsheets) {
+    try {
+      var sheetName = sheet.getName();
+      // Escape single-quote in sheet name per Sheets API A1 grammar.
+      var quotedName = "'" + sheetName.replace(/'/g, "''") + "'";
+      var range = quotedName + "!A" + startRow + ":A" + endRow;
+      var resp = Sheets.Spreadsheets.get(sheet.getParent().getId(), {
+        ranges: [range],
+        fields: "sheets(data(rowMetadata.hiddenByUser))",
+      });
+      var rowMeta = (resp && resp.sheets && resp.sheets[0] &&
+        resp.sheets[0].data && resp.sheets[0].data[0] &&
+        resp.sheets[0].data[0].rowMetadata) || [];
+      var hidden = new Array(count);
+      for (var i = 0; i < count; i++) {
+        hidden[i] = !!(rowMeta[i] && rowMeta[i].hiddenByUser);
+      }
+      return hidden;
+    } catch (e) {
+      Logger.log("readHiddenRowsBulk: Advanced Sheets API failed (" + e + "); falling back to per-row check.");
+    }
+  }
+  var fallback = new Array(count);
+  for (var k = 0; k < count; k++) {
+    fallback[k] = sheet.isRowHiddenByUser(startRow + k);
+  }
+  return fallback;
+}
+
+function findIdentifyingPropValFromCache(header, rowVals, profile) {
+  var sortedIdProp = profile["identifyingProperties"].slice();
+  sortedIdProp.sort(function(a, b) {
+    return getIdentifyingPropPriority(a) - getIdentifyingPropPriority(b);
+  });
+  for (var i = 0; i < sortedIdProp.length; i++) {
+    var prop = sortedIdProp[i];
+    var col = header.indexOf(prop);
+    if (col < 0) {
       continue;
     }
-    // if has #skip and it is 1 then skip
-    if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP)) {
-      if (toBoolean(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
-        continue;
+    var val = rowVals[col];
+    if (val) {
+      if (isArrayProp(profile, prop)) {
+        if (typeof val === "string" && isArrayString(val)) {
+          val = JSON.parse(val)[0];
+        } else if (Array.isArray(val)) {
+          val = val[0];
+        }
       }
+      return { prop: prop, val: val, col: col + 1 };
     }
+  }
+  return { prop: null, val: null, col: null };
+}
 
-    var json = typeCastJsonValuesByProfile(
-      profile, jsonBeforeTypeCast, keepCommentedProps=false
+function buildSubmissionItems(sheet, sheetData, profile, profileName, endpoint, method, selectedColsForPatch) {
+  var items = [];
+  for (var i = 0; i < sheetData.values.length; i++) {
+    var row = HEADER_ROW + 1 + i;
+    if (sheetData.hiddenRows[i]) {
+      continue;
+    }
+    var jsonBeforeTypeCast = rowDataToJson(
+      sheetData.header, sheetData.values[i], sheetData.displayValues[i],
+      true, true
     );
+    if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP) &&
+        toBoolean(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
+      continue;
+    }
+    var json = typeCastJsonValuesByProfile(profile, jsonBeforeTypeCast, false);
 
-    // if there is an attachment (e.g. document profile)
-    // then read from Google Drive, base64encode its content
-    if (
-      hasAttachment(profile) &&
-      json.hasOwnProperty(HEADER_PROP_ATTACHMENT) &&
-      json[HEADER_PROP_ATTACHMENT]
-    ) {
-      // overwrite on payload's attachment
+    // Attachments still happen up front: base64 of large files would blow past
+    // the fetchAll batch cap; better to surface that before the batch starts.
+    if (hasAttachment(profile) &&
+        json.hasOwnProperty(HEADER_PROP_ATTACHMENT) &&
+        json[HEADER_PROP_ATTACHMENT]) {
       var attachment = setAttachment(json[HEADER_PROP_ATTACHMENT]);
       if (!attachment) {
         continue;
@@ -272,93 +378,340 @@ function submitSheetToPortal(
       json[HEADER_PROP_ATTACHMENT] = attachment;
     }
 
-    var payloadJson = {};
-
-    // filter JSON with selectedColsForPatch
+    var payloadJson;
     if (method === "PATCH" && selectedColsForPatch.length > 0) {
-      const selectedHeaderProps = selectedColsForPatch.map((x) => x.headerProp);
-      for (var prop of Object.keys(json)) {
-        if (selectedHeaderProps.includes(prop)) {
+      payloadJson = {};
+      var selectedHeaderProps = selectedColsForPatch.map(function(x) { return x.headerProp; });
+      Object.keys(json).forEach(function(prop) {
+        if (selectedHeaderProps.indexOf(prop) >= 0) {
           payloadJson[prop] = json[prop];
         }
-      }
-
+      });
     } else {
-      payloadJson = JSON.parse(JSON.stringify(json));
+      payloadJson = json;
     }
 
-    switch(method) {
+    var url;
+    switch (method) {
       case "PUT":
       case "PATCH":
-        var [identifyingProp, identifyingVal, identifyingCol] =
-          findIdentifyingPropValColInRow(sheet, row, profile);
-
-        if (!identifyingProp || !identifyingVal) {
+        var ident = findIdentifyingPropValFromCache(sheetData.header, sheetData.values[i], profile);
+        if (!ident.prop || !ident.val) {
           continue;
         }
-
-        var url = makeMetadataUrl(method, profileName, endpointForPut, identifyingVal);
-        var response = restSubmit(url, payloadJson=payloadJson, method=method);
+        url = makeMetadataUrl(method, profileName, endpoint, ident.val);
         break;
-
       case "POST":
-        var url = makeMetadataUrl(method, profileName, endpointForPut);
-        var response = restSubmit(url, payloadJson=payloadJson, method=method);
+        url = makeMetadataUrl(method, profileName, endpoint);
         break;
-
       default:
-        Logger.log("submitSheetToPortal: Wrong REST method " + method);
+        Logger.log("buildSubmissionItems: Wrong REST method " + method);
         continue;
     }
 
-    var error = response.getResponseCode();
-    var responseJson = JSON.parse(response.getContentText());
+    items.push({
+      row: row,
+      jsonBeforeTypeCast: jsonBeforeTypeCast,
+      request: { url: url, method: method, payloadJson: payloadJson },
+    });
+  }
+  return items;
+}
 
-    jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] = method + "," + error;
-    if (method === "PATCH") {
-      jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "\nSelected props: ";
-      if (selectedColsForPatch.length === 0) {
-        jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "ALL";
-      } else {
-        jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += selectedColsForPatch.map(x => x.headerProp).join(",");
-      }
-    }
-
-    jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE_TIME] = getCurrentLocalTimeString("");
-
-    switch(error) {
-      case 200:
-        break;
-
-      case 201:
-        // POST assigns new values to identifying properties (e.g. uuid, accession)
-        // so update row with those new identifying values
-        profile["identifyingProperties"].forEach(prop => {
-          if (!isCommentedProp(profile, prop)) {
-            jsonBeforeTypeCast[prop] = responseJson["@graph"][0][prop];
-          }
-        });
-        jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
-        break;
-
-      case 422:
-        // validation failure
-        jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "\nIf error message is not helpful, try Validate on the menu.\n"
-
-      default:
-        jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
-    }
-
-    // rewrite data, with commented headers such as error and text, on the sheet
-    writeJsonToRow(sheet, jsonBeforeTypeCast, row);
-    numSubmitted++;
+function processSubmissionResponse(item, response, profile, method, selectedColsForPatch) {
+  var error = response.getResponseCode();
+  var responseJson;
+  try {
+    responseJson = JSON.parse(response.getContentText());
+  } catch (e) {
+    responseJson = { _parseError: String(e), _rawText: response.getContentText().substring(0, 500) };
   }
 
-  if (numSubmitted > 0) {
+  item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] = method + "," + error;
+  if (method === "PATCH") {
+    item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "\nSelected props: ";
+    if (selectedColsForPatch.length === 0) {
+      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "ALL";
+    } else {
+      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+        selectedColsForPatch.map(function(x) { return x.headerProp; }).join(",");
+    }
+  }
+  item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE_TIME] = getCurrentLocalTimeString("");
+
+  switch (error) {
+    case 200:
+      break;
+    case 201:
+      // POST returns the newly assigned identifying props (accession, uuid, etc.)
+      profile["identifyingProperties"].forEach(function(prop) {
+        if (!isCommentedProp(profile, prop)) {
+          if (responseJson && responseJson["@graph"] && responseJson["@graph"][0]) {
+            item.jsonBeforeTypeCast[prop] = responseJson["@graph"][0][prop];
+          }
+        }
+      });
+      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+        "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
+      break;
+    case 422:
+      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+        "\nIf error message is not helpful, try Validate on the menu.\n";
+      // Falls through intentionally — keep original behavior.
+    default:
+      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+        "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
+  }
+}
+
+// Writes back a chunk's worth of results with at most one header extension,
+// one bounding-rect read, and one setValues. Rows in [minRow..maxRow] that
+// weren't submitted (hidden/skipped) keep their existing values.
+function writeSubmissionResultsForChunk(sheet, items) {
+  if (items.length === 0) {
+    return;
+  }
+  var sorted = items.slice().sort(function(a, b) { return a.row - b.row; });
+  var minRow = sorted[0].row;
+  var maxRow = sorted[sorted.length - 1].row;
+
+  var lastCol = sheet.getLastColumn();
+  var currentHeader = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  var headerSet = {};
+  currentHeader.forEach(function(p) { if (p) headerSet[p] = true; });
+  var newProps = [];
+  sorted.forEach(function(item) {
+    Object.keys(item.jsonBeforeTypeCast).forEach(function(p) {
+      if (!headerSet[p]) {
+        headerSet[p] = true;
+        newProps.push(p);
+      }
+    });
+  });
+  var extendedHeader = currentHeader.concat(newProps);
+  if (newProps.length > 0) {
+    sheet.getRange(HEADER_ROW, lastCol + 1, 1, newProps.length).setValues([newProps]);
+  }
+
+  var rectRows = maxRow - minRow + 1;
+  var rectVals = sheet.getRange(minRow, 1, rectRows, extendedHeader.length).getValues();
+
+  var itemByRow = {};
+  sorted.forEach(function(item) { itemByRow[item.row] = item; });
+
+  for (var r = 0; r < rectRows; r++) {
+    var actualRow = minRow + r;
+    var item = itemByRow[actualRow];
+    if (!item) {
+      continue;
+    }
+    for (var c = 0; c < extendedHeader.length; c++) {
+      var prop = extendedHeader[c];
+      if (!prop) {
+        continue;
+      }
+      if (item.jsonBeforeTypeCast.hasOwnProperty(prop)) {
+        var v = item.jsonBeforeTypeCast[prop];
+        if (["array", "object"].indexOf(getType(v)) >= 0) {
+          rectVals[r][c] = JSON.stringify(v);
+        } else if (v === null) {
+          rectVals[r][c] = "";
+        } else {
+          rectVals[r][c] = v;
+        }
+      }
+    }
+  }
+
+  sheet.getRange(minRow, 1, rectRows, extendedHeader.length).setValues(rectVals);
+}
+
+// Persistence helpers for the continuation pattern. State is per-document so
+// multiple users editing the same sheet share one in-flight submission.
+function saveSubmitResumeState(state) {
+  PropertiesService.getDocumentProperties().setProperty(
+    SUBMIT_RESUME_STATE_KEY, JSON.stringify(state)
+  );
+}
+
+function loadSubmitResumeState() {
+  var raw = PropertiesService.getDocumentProperties().getProperty(SUBMIT_RESUME_STATE_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearSubmitResumeState() {
+  PropertiesService.getDocumentProperties().deleteProperty(SUBMIT_RESUME_STATE_KEY);
+}
+
+function scheduleSubmitResume() {
+  ScriptApp.newTrigger(SUBMIT_RESUME_TRIGGER_FUNCTION)
+    .timeBased()
+    .after(SUBMIT_RESUME_DELAY_MS)
+    .create();
+}
+
+function deleteSubmitResumeTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === SUBMIT_RESUME_TRIGGER_FUNCTION) {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+function findSheetById(sheetId) {
+  var sheets = SpreadsheetApp.getActive().getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getSheetId() === sheetId) {
+      return sheets[i];
+    }
+  }
+  return null;
+}
+
+function isSubmitResumeInFlight() {
+  return loadSubmitResumeState() !== null;
+}
+
+function submitSheetToPortal(
+  sheet, profileName, endpointForPut, endpointForProfile, method, selectedColsForPatch=[], resumeState=null
+) {
+  // Returns { numSubmitted, paused, total, stats } so the UI can show the
+  // right post-run message (success vs. "will resume").
+  if (!resumeState) {
+    // Fresh run — drop any stale resume state/trigger left by an abandoned prior run.
+    clearSubmitResumeState();
+    deleteSubmitResumeTriggers();
+  }
+  var profile = getProfile(profileName, endpointForProfile);
+  var sliceStart = Date.now();
+
+  var sheetReadStart = Date.now();
+  var sheetData = readSheetForSubmission(sheet);
+  var sheetReadElapsed = Date.now() - sheetReadStart;
+
+  var items = buildSubmissionItems(
+    sheet, sheetData, profile, profileName, endpointForPut, method, selectedColsForPatch
+  );
+  var total = items.length;
+
+  var stats = restoreSubmissionStats(resumeState && resumeState.stats, SUBMIT_FETCH_CHUNK_SIZE);
+  stats.sheetReadMs += sheetReadElapsed;
+
+  var startIdx = (resumeState && resumeState.nextItemIdx) || 0;
+  if (startIdx >= total) {
+    clearSubmitResumeState();
+    deleteSubmitResumeTriggers();
+    return { numSubmitted: stats.rowsSubmitted, paused: false, total: total, stats: stats };
+  }
+
+  for (var i = startIdx; i < total; i += SUBMIT_FETCH_CHUNK_SIZE) {
+    if (Date.now() - sliceStart > SUBMIT_TIME_BUDGET_MS) {
+      stats.pauses += 1;
+      saveSubmitResumeState({
+        sheetId: sheet.getSheetId(),
+        sheetName: sheet.getName(),
+        profileName: profileName,
+        endpoint: endpointForPut,
+        endpointForProfile: endpointForProfile,
+        method: method,
+        selectedColsForPatch: selectedColsForPatch,
+        nextItemIdx: i,
+        stats: stats,
+      });
+      // Best-effort cleanup of any earlier scheduled trigger before installing
+      // a new one, so we don't end up with duplicate resume triggers.
+      deleteSubmitResumeTriggers();
+      scheduleSubmitResume();
+      try {
+        SpreadsheetApp.getActive().toast(
+          "Submitted " + stats.rowsSubmitted + " of " + total + ". " +
+            "Will auto-resume in ~" + Math.round(SUBMIT_RESUME_DELAY_MS / 1000) + "s.",
+          "Lattice submitter",
+          10
+        );
+      } catch (toastErr) {
+        Logger.log("Toast on pause failed: " + toastErr);
+      }
+      return { numSubmitted: stats.rowsSubmitted, paused: true, total: total, stats: stats };
+    }
+
+    var chunk = items.slice(i, i + SUBMIT_FETCH_CHUNK_SIZE);
+    var requests = chunk.map(function(item) { return item.request; });
+
+    var netStart = Date.now();
+    var responses = restSubmitAll(requests);
+    stats.networkMs += Date.now() - netStart;
+    stats.networkChunks += 1;
+
+    for (var j = 0; j < responses.length; j++) {
+      processSubmissionResponse(chunk[j], responses[j], profile, method, selectedColsForPatch);
+    }
+
+    var writeStart = Date.now();
+    writeSubmissionResultsForChunk(sheet, chunk);
+    stats.sheetWriteMs += Date.now() - writeStart;
+    stats.rowsSubmitted += chunk.length;
+  }
+
+  clearSubmitResumeState();
+  deleteSubmitResumeTriggers();
+
+  if (stats.rowsSubmitted > 0) {
     setLastUsedSchemaVersion(sheet, getProfileSchemaVersion(profile));
   }
 
-  return numSubmitted;
+  return { numSubmitted: stats.rowsSubmitted, paused: false, total: total, stats: stats };
+}
+
+// Triggered by the time-based trigger installed when a run hits the time budget.
+// Re-enters submitSheetToPortal with the saved cursor; deletes itself on completion.
+function resumeSubmitToPortal() {
+  var state = loadSubmitResumeState();
+  if (!state) {
+    Logger.log("resumeSubmitToPortal: no resume state; nothing to do.");
+    deleteSubmitResumeTriggers();
+    return;
+  }
+  var sheet = findSheetById(state.sheetId);
+  if (!sheet) {
+    Logger.log("resumeSubmitToPortal: sheet not found for ID " + state.sheetId +
+      " (was '" + state.sheetName + "'). Clearing resume state.");
+    clearSubmitResumeState();
+    deleteSubmitResumeTriggers();
+    return;
+  }
+  try {
+    SpreadsheetApp.getActive().toast(
+      "Resuming submission on '" + sheet.getName() + "'...",
+      "Lattice submitter",
+      8
+    );
+  } catch (e) {
+    // Toast may fail if no user has the sheet open; ignore.
+  }
+  var result = submitSheetToPortal(
+    sheet, state.profileName, state.endpoint, state.endpointForProfile,
+    state.method, state.selectedColsForPatch || [], state
+  );
+  if (!result.paused) {
+    try {
+      SpreadsheetApp.getActive().toast(
+        "Submission complete: " + result.numSubmitted + "/" + result.total + " rows.",
+        "Lattice submitter",
+        10
+      );
+    } catch (e) {
+      // ignore
+    }
+  }
 }
 
 function validateSheet(sheet, profileName, endpointForProfile) {
