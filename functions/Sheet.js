@@ -84,13 +84,26 @@ function getSpreadsheetAllDevMetadata() {
 }
 
 function getNumMetadataInSheet(sheet, ignoreHiddenRows=false) {
-  var numRows = 0;
-  for (var row = HEADER_ROW + 1; row <= getLastRow(sheet); row++) {
-    if (!ignoreHiddenRows || ignoreHiddenRows && !isRowHidden(sheet, row)) {
-      numRows += 1;
+  var lastRow = getLastRow(sheet);
+  if (lastRow <= HEADER_ROW) {
+    return 0;
+  }
+  var dataRowCount = lastRow - HEADER_ROW;
+  if (!ignoreHiddenRows) {
+    return dataRowCount;
+  }
+  // Used by postAll/patchAll/putAll/getMetadataForAll to populate the
+  // pre-submission confirmation dialog. The per-row isRowHiddenByUser
+  // loop was costing ~50-100 ms per row (~30 s on a 300-row sheet)
+  // before the user ever saw the confirmation prompt.
+  var hidden = readHiddenRowsBulk(sheet, HEADER_ROW + 1, lastRow);
+  var visible = 0;
+  for (var i = 0; i < hidden.length; i++) {
+    if (!hidden[i]) {
+      visible += 1;
     }
   }
-  return numRows;
+  return visible;
 }
 
 function isSheetEmpty(sheet) {
