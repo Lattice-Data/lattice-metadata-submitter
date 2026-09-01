@@ -68,3 +68,11 @@ test('Set endpoint dialog lists only supported Lattice API bases', () => {
   expect(sheet).not.toContain('getIgvfEndpointsAvailableForUsers');
   expect(sheet).toContain('getLatticeEndpointsAvailableForUsers().join');
 });
+
+test('ALL_LATTICE_PROFILES includes source and template exclusion list omits IGVF leftovers', () => {
+  const endpoint = read(endpointPath);
+  expect(endpoint).toContain('"source",');
+  expect(endpoint).toMatch(/const LATTICE_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION = \[[\s\S]*?"source",/);
+  expect(endpoint).not.toContain('"award",');
+  expect(endpoint).not.toContain('"gene",');
+});
