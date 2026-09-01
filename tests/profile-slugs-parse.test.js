@@ -24,6 +24,16 @@ test('parseProfileSlugsFromProfilesResponse collects @id profile paths', () => {
   expect(parse(JSON.stringify(fixture))).toEqual(['document', 'sequence_file']);
 });
 
+test('parseProfileSlugsFromProfilesResponse collects $id profile paths from production payload', () => {
+  const parse = loadParser();
+  const fixture = {
+    '@type': ['JSONSchemas'],
+    Source: { $id: '/profiles/source.json', title: 'Source' },
+    Document: { $id: '/profiles/document.json', title: 'Document' },
+  };
+  expect(parse(JSON.stringify(fixture))).toEqual(['document', 'source']);
+});
+
 test('parseProfileSlugsFromProfilesResponse returns empty on invalid JSON', () => {
   const parse = loadParser();
   expect(parse('not json')).toEqual([]);
