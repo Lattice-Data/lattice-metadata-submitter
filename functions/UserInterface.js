@@ -330,6 +330,78 @@ function patchSelected() {
   applyProfileToSheet();
 }
 
+// PATCH replaces a list with the cell's list; this adds the cell's items to the
+// portal's list instead. See ListAppend.js.
+function patchSelectedAppend() {
+  if (!checkProfile()) {
+    return;
+  }
+
+  var sheet = getCurrentSheet();
+  var profile = getProfile(getProfileName(), getEndpoint());
+
+  var listProps = [];
+  getSelectedColumns(sheet, false).forEach(function(x) {
+    if (listProps.indexOf(x.headerProp) < 0) {
+      listProps.push(x.headerProp);
+    }
+  });
+  if (listProps.length === 0) {
+    alertBox('Found no selected column(s) with valid header.');
+    return;
+  }
+  var notLists = listProps.filter(function(prop) { return !isArrayProp(profile, prop); });
+  if (notLists.length > 0) {
+    alertBox(
+      "Append works on list properties only. These selected columns are not lists:\n\n" +
+      notLists.join(", ") + "\n\n" +
+      "Select only list columns (bold italic headers) and try again."
+    );
+    return;
+  }
+
+  var numData = getNumMetadataInSheet(sheet, true);
+  if (numData === 0) {
+    alertBox(`Found no data to submit to the portal.`);
+    return;
+  }
+  if (!alertBoxOkCancel(
+    `Found ${numData} data row(s).\n\n` +
+    "This will ADD the items in the selected cells to these lists on the portal. " +
+    "Items the portal already has are skipped, and nothing is removed.\n\n" +
+    `Selected lists: ${listProps.join(",")}\n\n` +
+    "When a row succeeds, its cell is replaced with the full list from the portal.\n\n" +
+    `Are you sure to append to ${getEndpoint()}?`)) {
+    return;
+  }
+
+  var result = appendToListsInSheet(sheet, getProfileName(), getEndpoint(), listProps);
+  alertBox(formatAppendResult(result, getEndpoint()));
+}
+
+function formatAppendResult(result, endpoint) {
+  if (result.total === 0) {
+    return "Found no rows with items to append in the selected columns.";
+  }
+  var message =
+    `Appended to lists on ${endpoint}: ${result.changed} row(s) changed, ` +
+    `${result.unchanged} already up to date, ${result.failed} failed.`;
+  if (result.failed > 0) {
+    message += " See #response for details.";
+  }
+  if (result.moved > 0) {
+    message +=
+      `\n\n${result.moved} row(s) were moved or edited during the run, so their cells were not updated. ` +
+      "Run it again to finish them.";
+  }
+  if (result.stoppedEarly) {
+    message +=
+      `\n\nStopped after ${result.done} of ${result.total} row(s) because of the time limit. ` +
+      "Run it again to continue; rows already done will show 'no change'.";
+  }
+  return message;
+}
+
 function patchAll() {
   if (!checkProfile()) {
     return;

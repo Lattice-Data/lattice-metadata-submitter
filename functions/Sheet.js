@@ -264,6 +264,62 @@ function writeToCell(sheet, row, col, val) {
   writeRangeToCells(sheet, row, col, [[val]]);
 }
 
+function toCellValue(val) {
+  if (["array", "object"].includes(getType(val))) {
+    return JSON.stringify(val);
+  } else if (val === null || val === undefined) {
+    return "";
+  }
+  return val;
+}
+
+// Returns {prop: col} for `props`, appending any that are missing to the header row.
+function ensureHeaderColumns(sheet, props) {
+  var lastCol = sheet.getLastColumn();
+  var header = lastCol > 0 ? sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0] : [];
+  var colByProp = {};
+  header.forEach(function(prop, i) {
+    if (prop !== "" && !colByProp.hasOwnProperty(prop)) {
+      colByProp[prop] = i + 1;
+    }
+  });
+  var newProps = [];
+  props.forEach(function(prop) {
+    if (!colByProp.hasOwnProperty(prop) && newProps.indexOf(prop) < 0) {
+      newProps.push(prop);
+    }
+  });
+  if (newProps.length > 0) {
+    sheet.getRange(HEADER_ROW, lastCol + 1, 1, newProps.length).setValues([newProps]);
+    newProps.forEach(function(prop, i) {
+      colByProp[prop] = lastCol + 1 + i;
+    });
+  }
+  return colByProp;
+}
+
+// Writes only the given cells ({row, col, value}). Consecutive rows in one column
+// go out as a single setValues. Nothing else is read back or rewritten, so
+// formulas and edits in other cells are left alone.
+function writeCellUpdates(sheet, updates) {
+  var byCol = {};
+  updates.forEach(function(update) {
+    (byCol[update.col] = byCol[update.col] || []).push(update);
+  });
+  Object.keys(byCol).forEach(function(col) {
+    var cells = byCol[col].slice().sort(function(a, b) { return a.row - b.row; });
+    var runStart = 0;
+    for (var i = 1; i <= cells.length; i++) {
+      if (i === cells.length || cells[i].row !== cells[i - 1].row + 1) {
+        var run = cells.slice(runStart, i);
+        sheet.getRange(run[0].row, run[0].col, run.length, 1)
+          .setValues(run.map(function(update) { return [toCellValue(update.value)]; }));
+        runStart = i;
+      }
+    }
+  });
+}
+
 function updateHeaderWithArray(sheet, arr) {
   // returns re-ordered array:
   // props in current header + new props in arr

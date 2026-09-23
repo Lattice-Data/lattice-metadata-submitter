@@ -323,13 +323,18 @@ function readHiddenRowsBulk(sheet, startRow, endRow) {
   return fallback;
 }
 
-function findIdentifyingPropValFromCache(header, rowVals, profile) {
+function findIdentifyingPropValFromCache(header, rowVals, profile, excludeProps) {
+  // excludeProps: identifying props that must not be used to find the object
+  // (a list being appended to holds new items, not the object's current ones).
   var sortedIdProp = profile["identifyingProperties"].slice();
   sortedIdProp.sort(function(a, b) {
     return getIdentifyingPropPriority(a) - getIdentifyingPropPriority(b);
   });
   for (var i = 0; i < sortedIdProp.length; i++) {
     var prop = sortedIdProp[i];
+    if (excludeProps && excludeProps.indexOf(prop) >= 0) {
+      continue;
+    }
     var col = header.indexOf(prop);
     if (col < 0) {
       continue;
@@ -338,7 +343,11 @@ function findIdentifyingPropValFromCache(header, rowVals, profile) {
     if (val) {
       if (isArrayProp(profile, prop)) {
         if (typeof val === "string" && isArrayString(val)) {
-          val = JSON.parse(val)[0];
+          try {
+            val = JSON.parse(val)[0];
+          } catch (e) {
+            continue;
+          }
         } else if (Array.isArray(val)) {
           val = val[0];
         }
@@ -411,7 +420,7 @@ function buildSubmissionItems(sheet, sheetData, profile, profileName, endpoint, 
 
     items.push({
       row: row,
-      jsonBeforeTypeCast: jsonBeforeTypeCast,
+      propsInRow: Object.keys(jsonBeforeTypeCast),
       request: { url: url, method: method, payloadJson: payloadJson },
     });
   }
@@ -427,103 +436,76 @@ function processSubmissionResponse(item, response, profile, method, selectedCols
     responseJson = { _parseError: String(e), _rawText: response.getContentText().substring(0, 500) };
   }
 
-  item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] = method + "," + error;
+  // Only these cells are written back to the sheet (see writeSubmissionResultsForChunk).
+  var updates = {};
+  updates[HEADER_COMMENTED_PROP_RESPONSE] = method + "," + error;
   if (method === "PATCH") {
-    item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "\nSelected props: ";
+    updates[HEADER_COMMENTED_PROP_RESPONSE] += "\nSelected props: ";
     if (selectedColsForPatch.length === 0) {
-      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] += "ALL";
+      updates[HEADER_COMMENTED_PROP_RESPONSE] += "ALL";
     } else {
-      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+      updates[HEADER_COMMENTED_PROP_RESPONSE] +=
         selectedColsForPatch.map(function(x) { return x.headerProp; }).join(",");
     }
   }
-  item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE_TIME] = getCurrentLocalTimeString("");
+  updates[HEADER_COMMENTED_PROP_RESPONSE_TIME] = getCurrentLocalTimeString("");
 
   switch (error) {
     case 200:
       break;
     case 201:
-      // POST returns the newly assigned identifying props (accession, uuid, etc.)
+      // POST returns the newly assigned identifying props (accession, uuid, etc.).
+      // Only write ones the row didn't have: rewriting a cell it already had (e.g.
+      // aliases) would flatten a formula there or undo an edit made during the run.
       profile["identifyingProperties"].forEach(function(prop) {
+        if (item.propsInRow && item.propsInRow.indexOf(prop) >= 0) {
+          return;
+        }
         if (!isCommentedProp(profile, prop)) {
-          if (responseJson && responseJson["@graph"] && responseJson["@graph"][0]) {
-            item.jsonBeforeTypeCast[prop] = responseJson["@graph"][0][prop];
+          if (responseJson && responseJson["@graph"] && responseJson["@graph"][0] &&
+              responseJson["@graph"][0][prop] !== undefined) {
+            updates[prop] = responseJson["@graph"][0][prop];
           }
         }
       });
-      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+      updates[HEADER_COMMENTED_PROP_RESPONSE] +=
         "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
       break;
     case 422:
-      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+      updates[HEADER_COMMENTED_PROP_RESPONSE] +=
         "\nIf error message is not helpful, try Validate on the menu.\n";
       // Falls through intentionally — keep original behavior.
     default:
-      item.jsonBeforeTypeCast[HEADER_COMMENTED_PROP_RESPONSE] +=
+      updates[HEADER_COMMENTED_PROP_RESPONSE] +=
         "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
   }
+  item.updates = updates;
 }
 
-// Writes back a chunk's worth of results with at most one header extension,
-// one bounding-rect read, and one setValues. Rows in [minRow..maxRow] that
-// weren't submitted (hidden/skipped) keep their existing values.
+// Writes back only the cells a response changed: #response, #response_time and,
+// after a POST, the identifying values the portal assigned. Whole rows are not
+// rewritten, so formulas, hidden/#skip rows and edits made during the run survive.
 function writeSubmissionResultsForChunk(sheet, items) {
   if (items.length === 0) {
     return;
   }
-  var sorted = items.slice().sort(function(a, b) { return a.row - b.row; });
-  var minRow = sorted[0].row;
-  var maxRow = sorted[sorted.length - 1].row;
-
-  var lastCol = sheet.getLastColumn();
-  var currentHeader = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0];
-  var headerSet = {};
-  currentHeader.forEach(function(p) { if (p) headerSet[p] = true; });
-  var newProps = [];
-  sorted.forEach(function(item) {
-    Object.keys(item.jsonBeforeTypeCast).forEach(function(p) {
-      if (!headerSet[p]) {
-        headerSet[p] = true;
-        newProps.push(p);
+  var props = [];
+  items.forEach(function(item) {
+    Object.keys(item.updates).forEach(function(p) {
+      if (props.indexOf(p) < 0) {
+        props.push(p);
       }
     });
   });
-  var extendedHeader = currentHeader.concat(newProps);
-  if (newProps.length > 0) {
-    sheet.getRange(HEADER_ROW, lastCol + 1, 1, newProps.length).setValues([newProps]);
-  }
+  var colByProp = ensureHeaderColumns(sheet, props);
 
-  var rectRows = maxRow - minRow + 1;
-  var rectVals = sheet.getRange(minRow, 1, rectRows, extendedHeader.length).getValues();
-
-  var itemByRow = {};
-  sorted.forEach(function(item) { itemByRow[item.row] = item; });
-
-  for (var r = 0; r < rectRows; r++) {
-    var actualRow = minRow + r;
-    var item = itemByRow[actualRow];
-    if (!item) {
-      continue;
-    }
-    for (var c = 0; c < extendedHeader.length; c++) {
-      var prop = extendedHeader[c];
-      if (!prop) {
-        continue;
-      }
-      if (item.jsonBeforeTypeCast.hasOwnProperty(prop)) {
-        var v = item.jsonBeforeTypeCast[prop];
-        if (["array", "object"].indexOf(getType(v)) >= 0) {
-          rectVals[r][c] = JSON.stringify(v);
-        } else if (v === null) {
-          rectVals[r][c] = "";
-        } else {
-          rectVals[r][c] = v;
-        }
-      }
-    }
-  }
-
-  sheet.getRange(minRow, 1, rectRows, extendedHeader.length).setValues(rectVals);
+  var cellUpdates = [];
+  items.forEach(function(item) {
+    Object.keys(item.updates).forEach(function(p) {
+      cellUpdates.push({ row: item.row, col: colByProp[p], value: item.updates[p] });
+    });
+  });
+  writeCellUpdates(sheet, cellUpdates);
 }
 
 // Persistence helpers for the continuation pattern. State is per-document so

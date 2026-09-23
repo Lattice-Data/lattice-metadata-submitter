@@ -109,12 +109,13 @@ function restSubmit(url, payloadJson, method) {
 
 /**
  * Concurrently issues a batch of submissions via UrlFetchApp.fetchAll.
- * `requests` is an array of {url, method, payloadJson}. The returned
+ * `requests` is an array of {url, method, payloadJson, headers}. The returned
  * HTTPResponse array preserves the input order so callers can map back
  * to the originating row.
  *
  * Auth (Basic) is added uniformly using the stored credentials. The
- * credentials are read once for the whole batch.
+ * credentials are read once for the whole batch. Optional per-request
+ * `headers` (e.g. If-Match) are added on top.
  *
  * Limits to keep in mind when chunking calls:
  *  - Each individual response is still bounded by ~60 s.
@@ -138,6 +139,30 @@ function restSubmitAll(requests) {
       "muteHttpExceptions": true,
       "payload": JSON.stringify(req.payloadJson)
     };
+    var headers = Object.assign({}, authHeaders, req.headers);
+    if (Object.keys(headers).length > 0) {
+      params["headers"] = headers;
+    }
+    return params;
+  });
+
+  return UrlFetchApp.fetchAll(fetchParams);
+}
+
+/**
+ * Concurrently GETs a batch of URLs via UrlFetchApp.fetchAll, with the same
+ * Basic auth as restGet. Responses come back in input order.
+ */
+function restGetAll(urls) {
+  if (!urls || urls.length === 0) {
+    return [];
+  }
+  var username = getUsername();
+  var password = getPassword();
+  var authHeaders = (username && password) ? makeAuthHeaders(username, password) : null;
+
+  var fetchParams = urls.map(function(url) {
+    var params = {"url": url, "method": "GET", "contentType": "application/json", "muteHttpExceptions": true};
     if (authHeaders) {
       params["headers"] = authHeaders;
     }
