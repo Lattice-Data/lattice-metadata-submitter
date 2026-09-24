@@ -4,7 +4,7 @@ Spreadsheet-based metadata submitter (Google Sheets + Apps Script) for the **Lat
 
 ## Installation
 
-Make a copy of the following spreadsheet: <https://docs.google.com/spreadsheets/d/1WcE2vdQobuQx3n_a9u00bAcTXFbX9lu6iAJIG-85mWc/edit>
+Make a copy of the following spreadsheet: <https://docs.google.com/spreadsheets/d/1WcE2vdQobuQx3n_a9u00bAcTXFbX9lu6iAJIG-85mWc/edit?usp=sharing>
 
 Click on the menu item `Lattice v…` and then `Authorize for LATTICE`. You will see an error message `Authorization Required`. Click on `Continue`, choose your Google account. Click on `Advanced` and `Go to … Metadata Submitter (unsafe)` and then click on `Allow`.
 
