@@ -715,43 +715,60 @@ function resumeSubmitToPortal() {
 }
 
 function validateSheet(sheet, profileName, endpointForProfile) {
-  // returns actual number of submitted rows
+  // Validates each visible, non-#skip row against the profile and reports the
+  // result in #response and #response_time. Only those two cells are written:
+  // other columns (#upload_abspath, #notes, ...) and formulas are left as they are.
+  // Returns the number of rows validated.
   var profile = getProfile(profileName, endpointForProfile);
+  var sheetData = readSheetForSubmission(sheet);
 
-  const numData = getNumMetadataInSheet(sheet);
-  var numSubmitted = 0;
-
-  for (var row = HEADER_ROW + 1; row <= numData + HEADER_ROW; row++) {
-    var jsonBeforeTypeCast = rowToJson(
-      sheet, row, keepCommentedProps=true, bypassGoogleAutoParsing=true
-    );
-
-    if (isRowHidden(sheet, row)) {
+  var results = [];
+  for (var i = 0; i < sheetData.values.length; i++) {
+    if (sheetData.hiddenRows[i]) {
       continue;
     }
-    // if has #skip and it is 1 then skip
-    if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP)) {
-      if (toBoolean(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
+    var message;
+    try {
+      var jsonBeforeTypeCast = rowDataToJson(
+        sheetData.header, sheetData.values[i], sheetData.displayValues[i], true, true
+      );
+      // if has #skip and it is 1 then skip
+      if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP) &&
+          toBoolean(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
         continue;
       }
+      var json = typeCastJsonValuesByProfile(profile, jsonBeforeTypeCast, false);
+      var validationResult = validateJson(profile, filterOutCommentedProps(json));
+      message = validationResult.valid ?
+        "ValidationSuccess" : JSON.stringify(validationResult.errors, null, 2);
+    } catch (e) {
+      // e.g. a cell that looks like JSON but isn't: report it on the row and go on
+      message = "Could not validate this row: " + e;
     }
-
-    var json = typeCastJsonValuesByProfile(
-      profile, jsonBeforeTypeCast, keepCommentedProps=false
-    );
-
-    var validationResult = validateJson(profile, filterOutCommentedProps(json));
-    if (validationResult.valid) {
-      json[HEADER_COMMENTED_PROP_RESPONSE] = "ValidationSuccess";
-    } else {
-      json[HEADER_COMMENTED_PROP_RESPONSE] = JSON.stringify(validationResult.errors, null, 2);
-    }
-    json[HEADER_COMMENTED_PROP_RESPONSE_TIME] = getCurrentLocalTimeString("");
-    // rewrite data, with commented headers such as error and text, on the sheet
-    writeJsonToRow(sheet, json, row);
-    numSubmitted++;
+    results.push({ row: HEADER_ROW + 1 + i, message: message, time: getCurrentLocalTimeString("") });
   }
-  return numSubmitted;
+  if (results.length === 0) {
+    return 0;
+  }
+
+  var header = updateHeaderWithArray(
+    sheet, [HEADER_COMMENTED_PROP_RESPONSE, HEADER_COMMENTED_PROP_RESPONSE_TIME]
+  );
+  var responseCol = header.indexOf(HEADER_COMMENTED_PROP_RESPONSE) + 1;
+  var responseTimeCol = header.indexOf(HEADER_COMMENTED_PROP_RESPONSE_TIME) + 1;
+  // Consecutive rows go out as one block per column; hidden and #skip rows in
+  // between are never written.
+  for (var start = 0; start < results.length;) {
+    var end = start;
+    while (end + 1 < results.length && results[end + 1].row === results[end].row + 1) {
+      end++;
+    }
+    var run = results.slice(start, end + 1);
+    writeRangeToCells(sheet, run[0].row, responseCol, run.map(function(r) { return [r.message]; }));
+    writeRangeToCells(sheet, run[0].row, responseTimeCol, run.map(function(r) { return [r.time]; }));
+    start = end + 1;
+  }
+  return results.length;
 }
 
 function createNewSheetAndGetMetadata(sheet, profileName, endpoint) {
