@@ -50,7 +50,7 @@ function getUploadCredentialsFromFileId(fileId) {
 }
 
 function getUploadCredentialsFromIdentifyingVal(identifyingVal) {
-  var fileId = `files/${identifyingVal}/`;
+  var fileId = `files/${encodeURIComponent(String(identifyingVal))}/`;
   return getUploadCredentialsFromFileId(fileId);
 }
 
@@ -74,7 +74,7 @@ function getFileStatusAndErrorFromFileId(fileId) {
 }
 
 function getFileStatusAndErrorFromIdentifyingVal(identifyingVal) {
-  var fileId = `files/${identifyingVal}/`;
+  var fileId = `files/${encodeURIComponent(String(identifyingVal))}/`;
   return getFileStatusAndErrorFromFileId(fileId);
 }
 
@@ -111,7 +111,7 @@ function initUpload() {
     }
     // if has #skip and it is 1 then skip
     if (json.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP)) {
-      if (toBoolean(json[HEADER_COMMENTED_PROP_SKIP])) {
+      if (isSkipValue(json[HEADER_COMMENTED_PROP_SKIP])) {
         continue;
       }
     }
@@ -184,7 +184,7 @@ function updateStatusOnSheet(sheetName, identifyingProp, identifyingVal, status)
   const numData = getNumMetadataInSheet(sheet);
 
   for (var row = HEADER_ROW + 1; row <= numData + HEADER_ROW; row++) {
-    if (isRowHidden(sheet, row) || skipCol && toBoolean(getCellValue(sheet, row, skipCol))) {
+    if (isRowHidden(sheet, row) || skipCol && isSkipValue(getCellValue(sheet, row, skipCol))) {
       continue;
     }
     if (getCellValue(sheet, row, identifyingCol) == identifyingVal) {
@@ -244,7 +244,7 @@ function generateS3UploadCmd() {
     }
     // if has #skip and it is 1 then skip
     if (json.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP)) {
-      if (toBoolean(json[HEADER_COMMENTED_PROP_SKIP])) {
+      if (isSkipValue(json[HEADER_COMMENTED_PROP_SKIP])) {
         continue;
       }
     }

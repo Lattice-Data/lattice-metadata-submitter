@@ -166,11 +166,16 @@ function getMetadataForAll(forAdmin, showWarning=true) {
     return;
   }
 
-  var numUpdated = updateSheetWithMetadataFromPortal(
+  var result = updateSheetWithMetadataFromPortal(
     sheet, getProfileName(), getEndpoint(), getEndpoint(), forAdmin,
   );
   if (showWarning) {
-    alertBox(`Updated ${numUpdated} rows.`);
+    alertBox(
+      `Updated ${result.updated} rows.` +
+      (result.failed > 0 ?
+        `\n\n${result.failed} row(s) could not be read from the portal and were left as they were. See #response.` :
+        "")
+    );
   }
 
   applyProfileToSheet();
@@ -213,7 +218,7 @@ function convertSelectedRowToJson() {
   var jsonText = JSON.stringify(json, null, EXPORTED_JSON_INDENT);
 
   var htmlOutput = HtmlService
-      .createHtmlOutput(`<pre>${jsonText}</pre>`)
+      .createHtmlOutput(`<pre>${escapeHtml(jsonText)}</pre>`)
       .setWidth(500)
       .setHeight(600);
   SpreadsheetApp.getUi().showModalDialog(htmlOutput, `Row: ${currentRow}`);
@@ -482,7 +487,7 @@ function exportToJsonText() {
   var jsonText = JSON.stringify(json, null, EXPORTED_JSON_INDENT);
 
   var htmlOutput = HtmlService
-      .createHtmlOutput(`<pre>${jsonText}</pre>`)
+      .createHtmlOutput(`<pre>${escapeHtml(jsonText)}</pre>`)
       .setWidth(500)
       .setHeight(600);
   SpreadsheetApp.getUi().showModalDialog(htmlOutput, `Sheet: ${sheet.getName()}`);
@@ -506,7 +511,7 @@ function exportToJson() {
 }
 
 function authorize() {
-  if (getUsername() && getPassword()) {
+  if (getUsername_() && getPassword_()) {
     if (!alertBoxOkCancel(
       "Access key and access key secret already exist for Lattice, are you sure to proceed?")) {
       return;
@@ -518,14 +523,14 @@ function authorize() {
     alertBox("Failed to update access key.");
     return;
   }
-  setUsername(username);
+  setUsername_(username);
 
   var password = Browser.inputBox("Enter your Lattice access key secret:");
   if (!password || password === "cancel") {
     alertBox("Failed to update access key secret.");
     return;
   }
-  setPassword(password);
+  setPassword_(password);
 }
 
 function authorizeForLattice() {
@@ -534,7 +539,7 @@ function authorizeForLattice() {
 
 // currently developer only (debugging purpose)
 function authorizeForAws() {
-  if (getAwsAccessKey() && getAwsSecretAccessKey()) {
+  if (getAwsAccessKey_() && getAwsSecretAccessKey_()) {
     if (!alertBoxOkCancel(
       `(Developer only) AWS access key and secret access key pair already exists, are you sure to proceed?`)) {
       return;
@@ -546,14 +551,14 @@ function authorizeForAws() {
     alertBox("Failed to update AWS access key.");
     return;
   }
-  setAwsAccessKey(awsAccessKey);
+  setAwsAccessKey_(awsAccessKey);
 
   var awsSecretAccessKey = Browser.inputBox(`Enter your AWS secret access key:`);
   if (!awsSecretAccessKey || awsSecretAccessKey === "cancel") {
     alertBox("Failed to update AWS secret access key.");
     return;
   }
-  setAwsSecretAccessKey(awsSecretAccessKey);
+  setAwsSecretAccessKey_(awsSecretAccessKey);
 }
 
 function checkForUpdate() {
@@ -566,7 +571,7 @@ function checkForUpdate() {
     var detailHtml = '<p>Could not determine the latest release tag from GitHub.</p>';
     var msg = err && err.message ? String(err.message) : '';
     if (msg.indexOf('LATTICE_RELEASE_CHECK_HTTP_') === 0) {
-      var httpCode = Utilities.htmlEscape(msg.replace('LATTICE_RELEASE_CHECK_HTTP_', ''));
+      var httpCode = escapeHtml(msg.replace('LATTICE_RELEASE_CHECK_HTTP_', ''));
       detailHtml += '<p>GitHub returned HTTP ' + httpCode + ' instead of a redirect. You can retry later or open the releases page below.</p>';
     } else if (msg === 'LATTICE_RELEASE_CHECK_NO_LOCATION') {
       detailHtml += '<p>The response had no <code>Location</code> header. Open the releases page below to see the latest version.</p>';
@@ -587,15 +592,15 @@ function checkForUpdate() {
 
   var updateHelp = '';
   if (currentVersion !== latestVersion) {
-    updateHelp = `<p>New version ${latestVersion} is out on github.</p>` +
-    `<p>Please check <a href="${getUpdateHelpUrl(latestVersion)}" target="_blank">` +
+    updateHelp = `<p>New version ${escapeHtml(latestVersion)} is out on github.</p>` +
+    `<p>Please check <a href="${escapeHtml(getUpdateHelpUrl(latestVersion))}" target="_blank">` +
     'the update instruction</a></p>';
   }
 
   var htmlOutput = HtmlService
       .createHtmlOutput(
-        `<p>Current script version: ${currentVersion}</p>` +
-        `<p>Latest script version on github: ${latestVersion}</p>` +
+        `<p>Current script version: ${escapeHtml(currentVersion)}</p>` +
+        `<p>Latest script version on github: ${escapeHtml(latestVersion)}</p>` +
         updateHelp
       )
       .setWidth(500)

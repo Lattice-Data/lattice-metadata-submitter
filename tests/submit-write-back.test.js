@@ -6,7 +6,7 @@ const {
   credentialGlobals,
 } = require('./support/apps-script-sandbox');
 
-const FILES = ['Library.js', 'Sheet.js', 'Metadata.js', 'Profile.js', 'Connection.js'];
+const FILES = ['Library.js', 'Endpoint.js', 'Sheet.js', 'Metadata.js', 'Profile.js', 'Connection.js'];
 const ENDPOINT = 'https://api.sandbox.lattice-data.org';
 
 const PROFILE = {
