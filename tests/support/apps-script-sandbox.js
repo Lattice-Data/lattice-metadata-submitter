@@ -32,6 +32,7 @@ function makeFakeSheet(rows, hiddenRows = []) {
       const read = () =>
         Array.from({ length: numRows }, (_, i) => Array.from({ length: numCols }, (__, j) => cell(row + i, col + j)));
       return {
+        getValue: () => cell(row, col),
         getValues: read,
         getDisplayValues: () => read().map((r) => r.map(String)),
         setValues: (vals) => {
@@ -57,16 +58,18 @@ function fakeResponse(code, body, headers = {}) {
   };
 }
 
-// UrlFetchApp whose fetchAll answers each request with handler(request) -> {code, body, headers}.
+// UrlFetchApp whose fetch and fetchAll answer each request with
+// handler(request) -> {code, body, headers}; every request is recorded.
 function makeFakeUrlFetchApp(handler) {
   const requests = [];
+  const answer = (req) => {
+    requests.push(req);
+    const res = handler(req);
+    return fakeResponse(res.code, res.body, res.headers);
+  };
   const UrlFetchApp = {
-    fetchAll: (params) =>
-      params.map((req) => {
-        requests.push(req);
-        const res = handler(req);
-        return fakeResponse(res.code, res.body, res.headers);
-      }),
+    fetch: (url, params = {}) => answer({ url, ...params }),
+    fetchAll: (params) => params.map(answer),
   };
   return { UrlFetchApp, requests };
 }

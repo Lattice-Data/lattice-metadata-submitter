@@ -174,7 +174,7 @@ function collectAppendRows(sheetData, profile, listProps) {
       continue;
     }
     var rowVals = sheetData.values[i];
-    if (skipCol >= 0 && toBoolean(rowVals[skipCol])) {
+    if (skipCol >= 0 && isSkipValue(rowVals[skipCol])) {
       continue;
     }
     var additions = {};

@@ -27,12 +27,14 @@ function getTooltipForCommentedProp(prop) {
 }
 
 function makeMetadataUrl(method, profileName, endpoint, identifyingVal) {
+  // aliases may contain spaces and other characters that aren't valid in a URL
+  var id = encodeURIComponent(String(identifyingVal));
   switch(method) {
     case "GET":
-      return `${endpoint}/${profileName}/${identifyingVal}/?format=json&frame=object`;
+      return `${endpoint}/${profileName}/${id}/?format=json&frame=object`;
     case "PUT":
     case "PATCH":
-      return `${endpoint}/${profileName}/${identifyingVal}`;
+      return `${endpoint}/${profileName}/${id}`;
     case "POST":
       return `${endpoint}/${profileName}`;
     default:
@@ -41,6 +43,9 @@ function makeMetadataUrl(method, profileName, endpoint, identifyingVal) {
 }
 
 function getMetadataFromPortal(identifyingVal, identifyingProp, profileName, endpoint, forAdmin=false) {
+  // Returns {ok, object}. When the portal answers with an error (or with something
+  // that isn't JSON, like a proxy's 502 page), object holds only #response and
+  // #response_time, and the caller must leave the rest of the row alone.
   var url = makeMetadataUrl("GET", profileName, endpoint, identifyingVal);
   var response = restGet(url);
   var error = response.getResponseCode();
@@ -48,26 +53,33 @@ function getMetadataFromPortal(identifyingVal, identifyingProp, profileName, end
   var object = {
     [HEADER_COMMENTED_PROP_RESPONSE]: "GET" + "," + error,
     [HEADER_COMMENTED_PROP_RESPONSE_TIME]: getCurrentLocalTimeString(""),
-    [identifyingProp]: identifyingVal
   };
 
-  var responseJson = JSON.parse(response.getContentText());
-  if (error === 200) {
-    // filter out non gettable property
-    // see function isGettableProp in Profile.gs for details
-    var profile = getProfile(profileName, endpoint);
-    var filteredResponseJson = Object.keys(responseJson)
-      .filter((prop) => isGettableProp(profile, prop, forAdmin))
-      .reduce((cur, prop) => { return Object.assign(cur, { [prop]: responseJson[prop] })}, {});
-
-    // then merge it with commented properties
-    object = {...object, ...filteredResponseJson};
+  var responseJson;
+  try {
+    responseJson = JSON.parse(response.getContentText());
+  } catch (e) {
+    object[HEADER_COMMENTED_PROP_RESPONSE] +=
+      "\nThe portal's answer wasn't JSON:\n" + response.getContentText().substring(0, 500);
+    return { ok: false, object: object };
   }
-  else {
+  if (error !== 200) {
     // if error, write helpText to provide debugging information
     object[HEADER_COMMENTED_PROP_RESPONSE] += "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
+    return { ok: false, object: object };
   }
-  return object;
+
+  // filter out non gettable property
+  // see function isGettableProp in Profile.gs for details
+  var profile = getProfile(profileName, endpoint);
+  var filteredResponseJson = Object.keys(responseJson)
+    .filter((prop) => isGettableProp(profile, prop, forAdmin))
+    .reduce((cur, prop) => { return Object.assign(cur, { [prop]: responseJson[prop] })}, {});
+
+  // then merge it with commented properties
+  object[identifyingProp] = identifyingVal;
+  object = {...object, ...filteredResponseJson};
+  return { ok: true, object: object };
 }
 
 function getSortedProps(props, profile, propPriority=DEFAULT_PROP_PRIORITY) {
@@ -107,12 +119,15 @@ function updateSheetWithMetadataFromPortal(sheet, profileName, endpointForGet, e
   var skipCol = findColumnByHeaderValue(sheet, HEADER_COMMENTED_PROP_SKIP);
 
   // update each row if has accession value
+  // returns {updated, failed}: rows rewritten from the portal, and rows the portal
+  // answered with an error (those keep their cells; only #response is written)
   var numUpdated = 0;
+  var numFailed = 0;
   for (var row = HEADER_ROW + 1; row <= getLastRow(sheet); row++) {
     if (isRowHidden(sheet, row)) {
       continue;
     }
-    if (skipCol && toBoolean(getCellValue(sheet, row, skipCol))) {
+    if (skipCol && isSkipValue(getCellValue(sheet, row, skipCol))) {
       continue;
     }
 
@@ -123,11 +138,19 @@ function updateSheetWithMetadataFromPortal(sheet, profileName, endpointForGet, e
       continue;
     }
 
-    var metadataObj = getMetadataFromPortal(
+    var result = getMetadataFromPortal(
       identifyingVal, identifyingProp, profileName, endpointForGet, forAdmin
     );
-    var sortedProps = getSortedProps(Object.keys(metadataObj), profile);
-    writeJsonToRow(sheet, metadataObj, row, sortedProps);
+    if (!result.ok) {
+      var colByProp = ensureHeaderColumns(sheet, Object.keys(result.object));
+      writeCellUpdates(sheet, Object.keys(result.object).map(function(prop) {
+        return { row: row, col: colByProp[prop], value: result.object[prop] };
+      }));
+      numFailed++;
+      continue;
+    }
+    var sortedProps = getSortedProps(Object.keys(result.object), profile);
+    writeJsonToRow(sheet, result.object, row, sortedProps);
     numUpdated++;
   }
 
@@ -135,7 +158,7 @@ function updateSheetWithMetadataFromPortal(sheet, profileName, endpointForGet, e
     setLastUsedSchemaVersion(sheet, getProfileSchemaVersion(profile));
   }
 
-  return numUpdated;
+  return { updated: numUpdated, failed: numFailed };
 }
 
 function exportSheetToJson(sheet, profileName, endpointForProfile, keepCommentedProps) {
@@ -186,7 +209,14 @@ function findIdentifyingPropValColInRow(sheet, row, profile) {
 
     if (identifyingVal) {
       // if indentifying value is an array type then take the first element
-      identifyingVal = isArrayProp(profile, identifyingProp) ? JSON.parse(identifyingVal)[0] : identifyingVal;
+      if (isArrayProp(profile, identifyingProp)) {
+        try {
+          identifyingVal = JSON.parse(identifyingVal)[0];
+        } catch (e) {
+          // not a JSON list (e.g. a bare alias): try the next identifying prop
+          continue;
+        }
+      }
       return [
         identifyingProp,
         identifyingVal,
@@ -370,7 +400,7 @@ function buildSubmissionItems(sheet, sheetData, profile, profileName, endpoint, 
       true, true
     );
     if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP) &&
-        toBoolean(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
+        isSkipValue(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
       continue;
     }
     var json = typeCastJsonValuesByProfile(profile, jsonBeforeTypeCast, false);
@@ -716,7 +746,7 @@ function validateSheet(sheet, profileName, endpointForProfile) {
       );
       // if has #skip and it is 1 then skip
       if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP) &&
-          toBoolean(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
+          isSkipValue(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
         continue;
       }
       var json = typeCastJsonValuesByProfile(profile, jsonBeforeTypeCast, false);

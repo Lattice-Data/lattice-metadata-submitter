@@ -1,28 +1,42 @@
+// Functions ending in "_" are private in Apps Script: a dialog or sidebar can't
+// call them through google.script.run. The credential getters and setters are
+// private for that reason, and every request below that attaches the stored
+// credentials first checks that it is going to an allowed Lattice API endpoint.
+
 const PROPERTY_LATTICE_USERNAME = "latticeUsername";
 const PROPERTY_LATTICE_PASSWORD = "latticePassword";
 
-function getUsername() {
+function getUsername_() {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.getProperty(PROPERTY_LATTICE_USERNAME);
 }
 
-function setUsername(username) {
+function setUsername_(username) {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.setProperty(PROPERTY_LATTICE_USERNAME, username);
 }
 
-function getPassword() {
+function getPassword_() {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.getProperty(PROPERTY_LATTICE_PASSWORD);
 }
 
-function setPassword(password) {
+function setPassword_(password) {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.setProperty(PROPERTY_LATTICE_PASSWORD, password);
 }
 
 function makeAuthHeaders(username, password) {
   return {"Authorization" : "Basic " + Utilities.base64Encode(username + ":" + password)};
+}
+
+function assertLatticeApiUrl_(url) {
+  if (!isLatticeApiUrl(url)) {
+    throw new Error(
+      "Refusing to send your Lattice credentials to " + url + ". " +
+      "Use the menu 'Set endpoint' to pick a Lattice API."
+    );
+  }
 }
 
 /**
@@ -50,9 +64,10 @@ function getCSRFToken(endpoint, username, password) {
 }
 
 function restGet(url) {
+  assertLatticeApiUrl_(url);
   var params = {"method" : "GET", "contentType": "application/json", "muteHttpExceptions": true};
-  var username = getUsername();
-  var password = getPassword();
+  var username = getUsername_();
+  var password = getPassword_();
   if (username && password) {
     params["headers"] = makeAuthHeaders(username, password);
   }
@@ -90,8 +105,9 @@ function getCSRFTokenAndCookies(endpoint, username, password) {
 }
 
 function restSubmit(url, payloadJson, method) {
-  var username = getUsername();
-  var password = getPassword();
+  assertLatticeApiUrl_(url);
+  var username = getUsername_();
+  var password = getPassword_();
 
   var params = {
     "method": method,
@@ -127,8 +143,9 @@ function restSubmitAll(requests) {
   if (!requests || requests.length === 0) {
     return [];
   }
-  var username = getUsername();
-  var password = getPassword();
+  requests.forEach(function(req) { assertLatticeApiUrl_(req.url); });
+  var username = getUsername_();
+  var password = getPassword_();
   var authHeaders = (username && password) ? makeAuthHeaders(username, password) : null;
 
   var fetchParams = requests.map(function(req) {
@@ -157,8 +174,9 @@ function restGetAll(urls) {
   if (!urls || urls.length === 0) {
     return [];
   }
-  var username = getUsername();
-  var password = getPassword();
+  urls.forEach(function(url) { assertLatticeApiUrl_(url); });
+  var username = getUsername_();
+  var password = getPassword_();
   var authHeaders = (username && password) ? makeAuthHeaders(username, password) : null;
 
   var fetchParams = urls.map(function(url) {
@@ -178,22 +196,22 @@ const PROPERTY_AWS_ACCESS_KEY = "awsAccessKey";
 const PROPERTY_AWS_SECRET_ACCESS_KEY = "awsSecretAccessKey";
 
 
-function getAwsAccessKey() {
+function getAwsAccessKey_() {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.getProperty(PROPERTY_AWS_ACCESS_KEY);
 }
 
-function setAwsAccessKey(key) {
+function setAwsAccessKey_(key) {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.setProperty(PROPERTY_AWS_ACCESS_KEY, key);
 }
 
-function getAwsSecretAccessKey() {
+function getAwsSecretAccessKey_() {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.getProperty(PROPERTY_AWS_SECRET_ACCESS_KEY);
 }
 
-function setAwsSecretAccessKey(key) {
+function setAwsSecretAccessKey_(key) {
   var userProperties = PropertiesService.getUserProperties();
   return userProperties.setProperty(PROPERTY_AWS_SECRET_ACCESS_KEY, key);
 }

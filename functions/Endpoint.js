@@ -95,6 +95,13 @@ function isValidEndpoint(endpoint) {
   return ALL_ENDPOINTS.includes(endpoint) || isAdditionalLatticeApiEndpointByRegex(endpoint);
 }
 
+// True if url is on one of the allowed API endpoints; the stored Lattice
+// credentials are only ever sent to these (see Connection.js).
+function isLatticeApiUrl(url) {
+  var match = String(url).match(/^(https:\/\/[^\/?#]+)(?:[\/?#]|$)/i);
+  return !!match && isValidEndpoint(match[1]);
+}
+
 function getAllProfiles(endpoint) {
   return getResolvedProfileSlugList(endpoint);
 }

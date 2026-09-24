@@ -30,7 +30,7 @@ Allowed profile names come from the portal (`GET {endpoint}/profiles?format=json
 
 This metadata submitter converts each row into a JSON object and then submit it to the portal.
 
-You can skip any row by setting `#skip` column as `1` or by hiding the row itself (right-click on the selected rows and `Hide`).
+You can skip any row by setting its `#skip` cell to `1` (any value other than blank, `0`, `FALSE` or `no` skips it) or by hiding the row itself (right-click on the selected rows and `Hide`).
 
 Also, if cell's value is empty for a certain property then such property is simply ignored (not included in the JSON object when being sent to the portal).
 

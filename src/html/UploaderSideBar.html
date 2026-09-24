@@ -95,7 +95,7 @@
       function updateStatusLabel(id, status) {
         // update status on both DOM label and #upload_status on sheet
         // id is used to find paired status label from id
-        getPairedStatusLabel(id).innerHTML = status;
+        getPairedStatusLabel(id).textContent = status;
       }
 
       function updateStatusLabelAndSheet(id, status) {
@@ -114,7 +114,8 @@
         const sheetName = inputFromSheet[0];
         const rowsString = inputFromSheet[1];
 
-        document.getElementById("sheet-name").innerHTML = sheetName;
+        // values from the sheet and the portal are shown as text, never parsed as HTML
+        document.getElementById("sheet-name").textContent = sheetName;
 
         // rowsString is a stringified list of JSON objects (rows on sheet)
         var rows = JSON.parse(rowsString);
@@ -159,7 +160,11 @@
 
               // upload item UI
               var fileInfo = document.createElement("label");
-              fileInfo.innerHTML = `<span style='color: blue;'>${identifyingVal}</span>: ${fileEntry.fullPath}`;
+              var identifyingValSpan = document.createElement("span");
+              identifyingValSpan.style["color"] = "blue";
+              identifyingValSpan.textContent = identifyingVal;
+              fileInfo.appendChild(identifyingValSpan);
+              fileInfo.appendChild(document.createTextNode(`: ${fileEntry.fullPath}`));
 
               var br1 = document.createElement("br");
 
@@ -175,7 +180,7 @@
               statusLabel.setAttribute("id", "status-" + idSuffix);
               statusLabel.style["color"] = "darkgray";
               // statusLabel.relpath = fileEntry.fullPath;
-              statusLabel.innerHTML = status;
+              statusLabel.textContent = status;
 
               var br2 = document.createElement("br");
               var button = document.createElement("button");
@@ -300,7 +305,7 @@
       }
 
       function updateStatusOnSheet(identifyingProp, identifyingVal, status) {
-        const sheetName = document.getElementById("sheet-name").innerHTML;
+        const sheetName = document.getElementById("sheet-name").textContent;
         google.script.run.withSuccessHandler().updateStatusOnSheet(
          sheetName, identifyingProp, identifyingVal, status
         );
@@ -328,7 +333,7 @@
         dropzone.classList.remove('hover');
         let btnInit = document.getElementById("btn-init-upload");
         btnInit.removeAttribute("disabled");
-        document.getElementById("sheet-name").innerHTML = "";
+        document.getElementById("sheet-name").textContent = "";
         document.getElementById("btn-init-upload").innerHTML = "Initialize uploads for current sheet";
       }, false);
 

@@ -42,5 +42,5 @@ function getLatestScriptVersionFromGithub() {
 }
 
 function getUpdateHelpUrl(version) {
-  return URL_PREFIX_UPDATE_HELP + version + URL_SUFFIX_UPDATE_HELP;
+  return URL_PREFIX_UPDATE_HELP + encodeURIComponent(version) + URL_SUFFIX_UPDATE_HELP;
 }

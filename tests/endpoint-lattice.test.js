@@ -52,8 +52,10 @@ test('Connection.js stores credentials only for Lattice', () => {
   expect(conn).toContain('PROPERTY_LATTICE_USERNAME');
   expect(conn).not.toContain('PROPERTY_ENCODE_USERNAME');
   expect(conn).not.toContain('PROPERTY_IGVF_USERNAME');
-  expect(conn).toContain('function getUsername()');
-  expect(conn).toContain('function getPassword()');
+  // private (trailing _), so a dialog can't read them through google.script.run
+  expect(conn).toContain('function getUsername_()');
+  expect(conn).toContain('function getPassword_()');
+  expect(conn).not.toContain('function getPassword()');
 });
 
 test('getAllProfiles delegates to dynamic resolver', () => {
