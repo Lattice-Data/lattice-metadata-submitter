@@ -12,6 +12,7 @@ global.onOpen = () => {
   menu.addItem('GET metadata from portal', 'getMetadataForAllForUser');
   menu.addItem('POST new metadata to portal', 'postAll');
   menu.addItem('PATCH selected columns', 'patchSelected');
+  menu.addItem('PATCH selected columns (append to lists)', 'patchSelectedAppend');
   menu.addItem('PATCH all columns', 'patchAll');
   menu.addSeparator();
   menu.addItem('Upload local files (sidebar)', 'uploadSidebar');

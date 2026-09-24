@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 
@@ -21,4 +22,15 @@ test('dist/functions.js contains Lattice port markers', () => {
   expect(bundle).not.toContain('function authorizeForIgvf');
   expect(bundle).not.toContain('PROPERTY_ENCODE_USERNAME');
   expect(bundle).not.toContain('PROPERTY_IGVF_USERNAME');
+});
+
+// The files are concatenated into one script, so a top-level const that uses a
+// const from a file concatenated later fails when the script loads in Apps Script.
+test('dist/functions.js loads as one script', () => {
+  const bundle = fs.readFileSync(path.join(root, 'dist', 'functions.js'), 'utf8');
+  const sandbox = {};
+  vm.createContext(sandbox);
+  expect(() => vm.runInContext(bundle, sandbox)).not.toThrow();
+  expect(typeof sandbox.patchSelectedAppend).toBe('function');
+  expect(typeof sandbox.appendToListsInSheet).toBe('function');
 });

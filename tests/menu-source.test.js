@@ -20,6 +20,14 @@ test('developer submenu has no ENCODE or IGVF authorization entries', () => {
   expect(menu).not.toContain('authorizeForIgvf');
 });
 
+test('menu offers a PATCH that appends to lists, next to the one that replaces them', () => {
+  const menu = fs.readFileSync(menuPath, 'utf8');
+  expect(menu).toContain(
+    "menu.addItem('PATCH selected columns', 'patchSelected');\n" +
+      "  menu.addItem('PATCH selected columns (append to lists)', 'patchSelectedAppend');"
+  );
+});
+
 test('Tools menu includes refresh profile list action', () => {
   const menu = fs.readFileSync(menuPath, 'utf8');
   expect(menu).toContain("submenuTools.addItem('Refresh profile list from portal', 'refreshProfileSlugCacheForUser')");

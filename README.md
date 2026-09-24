@@ -46,6 +46,18 @@ POST sends a POST request to the portal. Use this to submit a new metadata and g
 
 PATCH will send a patch request to the portal in order to patch properties of **SELECTED** columns. Only selected columns will be affected by this request. Properties in other columns will not be included in the request.
 
+A list property is **replaced** by the list in the cell. To add items to a list instead, see below.
+
+### PATCH (append to lists)
+
+Select one or more list columns and click on `PATCH selected columns (append to lists)`. In each cell, put only the items to add as a JSON list, e.g. `["lab:new-alias"]`.
+
+For each row, the script reads the object's current list from the portal, adds the items that are not there yet, and sends the merged list. Nothing is removed and nothing is added twice, so running it again is safe. Rows for the same object are combined into one update. If someone else changes the object at the same moment, the portal refuses the write and the script re-reads and retries.
+
+When a row succeeds, its cell is replaced with the full list from the portal. Linked items (e.g. `documents`) can be given as uuids, aliases or `@id` paths; they are written back as `@id` paths. Each row needs a value to find the object by, such as `uuid`. A list you are appending to can't be used for that, so appending to `aliases` needs a `uuid` column.
+
+If rows are sorted, moved or edited while it runs, those rows are left alone and the final message says so. Run it again to finish them.
+
 ### PUT (Admin only)
 
 PUT sends a PUT request to the portal so that the whole metadata on the portal is replaced with a row on the sheet. **Beware that this will remove any missing properties on the sheet from the portal**.
