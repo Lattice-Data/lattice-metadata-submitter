@@ -71,10 +71,13 @@ function getMetadataFromPortal(identifyingVal, identifyingProp, profileName, end
 
   // filter out non gettable property
   // see function isGettableProp in Profile.gs for details
+  // Lists of links are written as uuids, not @id paths (see ListColumns.js).
   var profile = getProfile(profileName, endpoint);
   var filteredResponseJson = Object.keys(responseJson)
     .filter((prop) => isGettableProp(profile, prop, forAdmin))
-    .reduce((cur, prop) => { return Object.assign(cur, { [prop]: responseJson[prop] })}, {});
+    .reduce((cur, prop) => {
+      return Object.assign(cur, { [prop]: toCellLinkList(profile, prop, responseJson[prop]) });
+    }, {});
 
   // then merge it with commented properties
   object[identifyingProp] = identifyingVal;
@@ -142,10 +145,7 @@ function updateSheetWithMetadataFromPortal(sheet, profileName, endpointForGet, e
       identifyingVal, identifyingProp, profileName, endpointForGet, forAdmin
     );
     if (!result.ok) {
-      var colByProp = ensureHeaderColumns(sheet, Object.keys(result.object));
-      writeCellUpdates(sheet, Object.keys(result.object).map(function(prop) {
-        return { row: row, col: colByProp[prop], value: result.object[prop] };
-      }));
+      writeCellUpdatesByProp(sheet, [{ row: row, updates: result.object }]);
       numFailed++;
       continue;
     }
@@ -389,16 +389,30 @@ function findIdentifyingPropValFromCache(header, rowVals, profile, excludeProps)
 }
 
 function buildSubmissionItems(sheet, sheetData, profile, profileName, endpoint, method, selectedColsForPatch) {
+  // One item per visible, non-#skip row: {row, propsInRow, request}, or {row, error}
+  // for a row whose cells can't be read. Such a row is not sent; see submitSheetToPortal.
   var items = [];
+  var skipCol = sheetData.header.indexOf(HEADER_COMMENTED_PROP_SKIP);
+  // Selecting any column of a list spread over several columns selects the whole list.
+  var selectedProps = selectedBaseProps(selectedColsForPatch || []);
   for (var i = 0; i < sheetData.values.length; i++) {
     var row = HEADER_ROW + 1 + i;
     if (sheetData.hiddenRows[i]) {
       continue;
     }
-    var jsonBeforeTypeCast = rowDataToJson(
-      sheetData.header, sheetData.values[i], sheetData.displayValues[i],
-      true, true
-    );
+    var jsonBeforeTypeCast;
+    try {
+      jsonBeforeTypeCast = rowDataToJson(
+        sheetData.header, sheetData.values[i], sheetData.displayValues[i],
+        true, true
+      );
+    } catch (e) {
+      // e.g. a cell that looks like JSON but isn't, or a list part that isn't a list
+      if (!(skipCol >= 0 && isSkipValue(sheetData.values[i][skipCol]))) {
+        items.push({ row: row, error: "Could not read this row: " + e });
+      }
+      continue;
+    }
     if (jsonBeforeTypeCast.hasOwnProperty(HEADER_COMMENTED_PROP_SKIP) &&
         isSkipValue(jsonBeforeTypeCast[HEADER_COMMENTED_PROP_SKIP])) {
       continue;
@@ -418,11 +432,10 @@ function buildSubmissionItems(sheet, sheetData, profile, profileName, endpoint, 
     }
 
     var payloadJson;
-    if (method === "PATCH" && selectedColsForPatch.length > 0) {
+    if (method === "PATCH" && selectedProps.length > 0) {
       payloadJson = {};
-      var selectedHeaderProps = selectedColsForPatch.map(function(x) { return x.headerProp; });
       Object.keys(json).forEach(function(prop) {
-        if (selectedHeaderProps.indexOf(prop) >= 0) {
+        if (selectedProps.indexOf(prop) >= 0) {
           payloadJson[prop] = json[prop];
         }
       });
@@ -474,8 +487,7 @@ function processSubmissionResponse(item, response, profile, method, selectedCols
     if (selectedColsForPatch.length === 0) {
       updates[HEADER_COMMENTED_PROP_RESPONSE] += "ALL";
     } else {
-      updates[HEADER_COMMENTED_PROP_RESPONSE] +=
-        selectedColsForPatch.map(function(x) { return x.headerProp; }).join(",");
+      updates[HEADER_COMMENTED_PROP_RESPONSE] += selectedBaseProps(selectedColsForPatch).join(",");
     }
   }
   updates[HEADER_COMMENTED_PROP_RESPONSE_TIME] = getCurrentLocalTimeString("");
@@ -516,26 +528,7 @@ function processSubmissionResponse(item, response, profile, method, selectedCols
 // after a POST, the identifying values the portal assigned. Whole rows are not
 // rewritten, so formulas, hidden/#skip rows and edits made during the run survive.
 function writeSubmissionResultsForChunk(sheet, items) {
-  if (items.length === 0) {
-    return;
-  }
-  var props = [];
-  items.forEach(function(item) {
-    Object.keys(item.updates).forEach(function(p) {
-      if (props.indexOf(p) < 0) {
-        props.push(p);
-      }
-    });
-  });
-  var colByProp = ensureHeaderColumns(sheet, props);
-
-  var cellUpdates = [];
-  items.forEach(function(item) {
-    Object.keys(item.updates).forEach(function(p) {
-      cellUpdates.push({ row: item.row, col: colByProp[p], value: item.updates[p] });
-    });
-  });
-  writeCellUpdates(sheet, cellUpdates);
+  writeCellUpdatesByProp(sheet, items);
 }
 
 // Persistence helpers for the continuation pattern. State is per-document so
@@ -612,6 +605,20 @@ function submitSheetToPortal(
   var items = buildSubmissionItems(
     sheet, sheetData, profile, profileName, endpointForPut, method, selectedColsForPatch
   );
+  // Rows whose cells can't be read get their #response now and are left out of
+  // the run. A resumed run finds the same rows again and leaves them as they are.
+  var unreadable = items.filter(function(item) { return item.error; });
+  items = items.filter(function(item) { return !item.error; });
+  if (!resumeState && unreadable.length > 0) {
+    var errorTime = getCurrentLocalTimeString("");
+    unreadable.forEach(function(item) {
+      item.updates = {
+        [HEADER_COMMENTED_PROP_RESPONSE]: method + ",error\n" + item.error,
+        [HEADER_COMMENTED_PROP_RESPONSE_TIME]: errorTime,
+      };
+    });
+    writeSubmissionResultsForChunk(sheet, unreadable);
+  }
   var total = items.length;
 
   var stats = restoreSubmissionStats(resumeState && resumeState.stats, SUBMIT_FETCH_CHUNK_SIZE);
@@ -621,7 +628,10 @@ function submitSheetToPortal(
   if (startIdx >= total) {
     clearSubmitResumeState();
     deleteSubmitResumeTriggers();
-    return { numSubmitted: stats.rowsSubmitted, paused: false, total: total, stats: stats };
+    return {
+      numSubmitted: stats.rowsSubmitted, paused: false, total: total, stats: stats,
+      numUnreadable: unreadable.length,
+    };
   }
 
   for (var i = startIdx; i < total; i += SUBMIT_FETCH_CHUNK_SIZE) {
@@ -652,7 +662,10 @@ function submitSheetToPortal(
       } catch (toastErr) {
         Logger.log("Toast on pause failed: " + toastErr);
       }
-      return { numSubmitted: stats.rowsSubmitted, paused: true, total: total, stats: stats };
+      return {
+        numSubmitted: stats.rowsSubmitted, paused: true, total: total, stats: stats,
+        numUnreadable: unreadable.length,
+      };
     }
 
     var chunk = items.slice(i, i + SUBMIT_FETCH_CHUNK_SIZE);
@@ -680,7 +693,10 @@ function submitSheetToPortal(
     setLastUsedSchemaVersion(sheet, getProfileSchemaVersion(profile));
   }
 
-  return { numSubmitted: stats.rowsSubmitted, paused: false, total: total, stats: stats };
+  return {
+    numSubmitted: stats.rowsSubmitted, paused: false, total: total, stats: stats,
+    numUnreadable: unreadable.length,
+  };
 }
 
 // Triggered by the time-based trigger installed when a run hits the time budget.

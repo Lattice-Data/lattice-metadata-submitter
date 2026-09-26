@@ -77,7 +77,12 @@ function showSheetInfoAndHeaderLegend() {
 
     "* Style legends for properties\n" +
     "- Underline: Searachable property. Go to menu 'Search'.\n" +
-    "- Italic+Bold: Array type property."
+    "- Italic+Bold: Array type property.\n\n" +
+
+    "* Long lists\n" +
+    "- A cell holds at most 50,000 characters. A list too long for one cell continues in\n" +
+    "  columns named <property>#2, <property>#3, ... (e.g. derived_from#2), each a JSON list.\n" +
+    "- GET fills them in. Validate, POST, PATCH, PUT and append join them in order."
   );
 
 }
@@ -248,17 +253,27 @@ function formatSubmissionStats(stats) {
   return summary;
 }
 
+function formatUnreadableRows(result) {
+  if (!result.numUnreadable) {
+    return "";
+  }
+  return `\n\n${result.numUnreadable} row(s) were not sent because a cell could not be read. ` +
+    `See ${HEADER_COMMENTED_PROP_RESPONSE} on those rows.`;
+}
+
 function alertSubmissionResult(method, endpoint, result) {
   if (result.paused) {
     alertBox(
       `Submitted ${result.numSubmitted} of ${result.total} ${method} row(s) so far.\n\n` +
       `Reached the time budget for this slice. A background trigger will resume automatically in ~30 seconds.\n\n` +
       `Please do NOT edit the sheet until the run completes (toast notifications will appear when it resumes and finishes).` +
+      formatUnreadableRows(result) +
       formatSubmissionStats(result.stats)
     );
   } else {
     alertBox(
       `Submitted (${method}) ${result.numSubmitted} of ${result.total} row(s) to ${endpoint}.` +
+      formatUnreadableRows(result) +
       formatSubmissionStats(result.stats)
     );
   }
@@ -318,10 +333,18 @@ function patchSelected() {
     alertBox(`Found no data to submit to the portal.`);
     return;
   }  
+  // Selecting any column of a list spread over several columns selects the whole list.
+  var header = getCellValuesInRow(sheet, HEADER_ROW);
+  var selectedProps = selectedBaseProps(selectedCols);
+  var spansColumns = selectedProps.some(function(prop) {
+    return listColumnHeaders(header, prop).length > 1;
+  });
   if (!alertBoxOkCancel(
     `Found ${numData} data row(s).\n\n` +
     "PATCH action will REPLACE properties on the portal with data on selected columns only.\n\n" +
-    `Selected properties: ${selectedCols.map(x => x.headerProp).join(",")}` + "\n\n" +
+    `Selected properties: ${describePropsWithColumns(selectedProps, header)}\n\n` +
+    (spansColumns ?
+      "A list spread over several columns is sent whole, whichever of its columns are selected.\n\n" : "") +
     `Are you sure to PATCH to ${getEndpoint()}?`)) {
     return;
   }
@@ -345,12 +368,8 @@ function patchSelectedAppend() {
   var sheet = getCurrentSheet();
   var profile = getProfile(getProfileName(), getEndpoint());
 
-  var listProps = [];
-  getSelectedColumns(sheet, false).forEach(function(x) {
-    if (listProps.indexOf(x.headerProp) < 0) {
-      listProps.push(x.headerProp);
-    }
-  });
+  // Selecting any column of a list spread over several columns selects the whole list.
+  var listProps = selectedBaseProps(getSelectedColumns(sheet, false));
   if (listProps.length === 0) {
     alertBox('Found no selected column(s) with valid header.');
     return;
@@ -374,8 +393,9 @@ function patchSelectedAppend() {
     `Found ${numData} data row(s).\n\n` +
     "This will ADD the items in the selected cells to these lists on the portal. " +
     "Items the portal already has are skipped, and nothing is removed.\n\n" +
-    `Selected lists: ${listProps.join(",")}\n\n` +
-    "When a row succeeds, its cell is replaced with the full list from the portal.\n\n" +
+    `Selected lists: ${describePropsWithColumns(listProps, getCellValuesInRow(sheet, HEADER_ROW))}\n\n` +
+    "When a row succeeds, its cells are replaced with the full list from the portal, " +
+    "spread over several columns (e.g. aliases#2) if it is long.\n\n" +
     `Are you sure to append to ${getEndpoint()}?`)) {
     return;
   }

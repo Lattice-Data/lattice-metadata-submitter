@@ -6,7 +6,7 @@ const {
 } = require('./support/apps-script-sandbox');
 
 // Load order follows the bundle's needs: Profile.js reads Metadata.js consts at top level.
-const FILES = ['Library.js', 'Endpoint.js', 'Sheet.js', 'Metadata.js', 'Profile.js', 'Connection.js', 'ListAppend.js'];
+const FILES = ['Library.js', 'Endpoint.js', 'Sheet.js', 'Metadata.js', 'Profile.js', 'Connection.js', 'ListAppend.js', 'ListColumns.js'];
 const ENDPOINT = 'https://api.sandbox.lattice-data.org';
 
 // Like the Lattice schemas: objects are found by uuid or by their first alias.
@@ -503,5 +503,109 @@ describe('patchSelectedAppend (menu entry)', () => {
     fns.patchSelectedAppend();
     expect(calls).toEqual([['biosample', ENDPOINT, ['aliases']]]);
     expect(alerts).toEqual([`Appended to lists on ${ENDPOINT}: 1 row(s) changed, 0 already up to date, 0 failed.`]);
+  });
+});
+
+describe('lists spread over several columns', () => {
+  // Aliases about as long as Lattice's: roughly 480 fit in a cell, so 1,000 need three.
+  const longAliases = (n) =>
+    Array.from({ length: n }, (_, i) => `lab:${'sample-'.repeat(10)}${String(i).padStart(5, '0')}`);
+  const partCells = (fns, grid, prop) =>
+    fns.listColumnHeaders(grid[0], prop).map((name) => grid[1][grid[0].indexOf(name)]);
+
+  test('adds the items from every part and writes the merged list back over as many columns as needed', () => {
+    const portal = makePortal({ 'bs-1': { uuid: 'bs-1', aliases: longAliases(1000) } });
+    const { fns, run, grid } = setUp(
+      [
+        ['uuid', 'aliases', 'aliases#2', 'description'],
+        ['bs-1', '["lab:new-1"]', '["lab:new-2", "lab:new-3"]', 'keep'],
+      ],
+      portal,
+      { listProps: ['aliases'] }
+    );
+
+    expect(run()).toEqual(outcome({ total: 1, done: 1, changed: 1 }));
+    expect(portal.objects['bs-1'].aliases).toEqual(longAliases(1000).concat(['lab:new-1', 'lab:new-2', 'lab:new-3']));
+
+    expect(fns.listColumnHeaders(grid[0], 'aliases')).toEqual(['aliases', 'aliases#2', 'aliases#3']);
+    const cells = partCells(fns, grid, 'aliases');
+    cells.forEach((cell) => expect(cell.length).toBeLessThanOrEqual(40000));
+    expect(cells.flatMap((cell) => JSON.parse(cell))).toEqual(portal.objects['bs-1'].aliases);
+    expect(grid[1][3]).toBe('keep');
+    expect(grid[1][grid[0].indexOf('#response')]).toBe('APPEND,200\naliases: added lab:new-1, lab:new-2, lab:new-3');
+  });
+
+  test('a part that is not a JSON list fails the row, naming the column', () => {
+    const portal = makePortal({ 'bs-1': { aliases: ['lab:a'] } });
+    const { run, grid } = setUp(
+      [
+        ['uuid', 'aliases', 'aliases#2'],
+        ['bs-1', '["lab:b"]', "['bad']"],
+      ],
+      portal,
+      { listProps: ['aliases'] }
+    );
+
+    expect(run()).toEqual(outcome({ total: 1, done: 1, failed: 1 }));
+    expect(portal.objects['bs-1'].aliases).toEqual(['lab:a']);
+    expect(grid[1].slice(0, 3)).toEqual(['bs-1', '["lab:b"]', "['bad']"]);
+    expect(grid[1][3]).toMatch(/^APPEND,error\naliases#2: expected a JSON list/);
+  });
+
+  test('an edit to a continuation cell during the run leaves the row alone', () => {
+    const portal = makePortal({ 'bs-1': { aliases: [] } });
+    const fake = setUp(
+      [
+        ['uuid', 'aliases', 'aliases#2'],
+        ['bs-1', '["lab:a"]', '["lab:b"]'],
+      ],
+      portal,
+      { listProps: ['aliases'] }
+    );
+    portal.hooks.beforePatch = () => {
+      fake.grid[1][2] = '["lab:edited"]';
+    };
+
+    expect(fake.run()).toEqual(outcome({ total: 1, done: 1, moved: 1 }));
+    expect(fake.writes.filter((w) => w.row > 1)).toEqual([]);
+    expect(fake.grid[1]).toEqual(['bs-1', '["lab:a"]', '["lab:edited"]']);
+
+    expect(fake.run()).toEqual(outcome({ total: 1, done: 1, changed: 1 }));
+    expect(portal.objects['bs-1'].aliases).toEqual(['lab:a', 'lab:b', 'lab:edited']);
+    expect(fake.grid[1].slice(0, 3)).toEqual(['bs-1', '["lab:a","lab:b","lab:edited"]', '']);
+  });
+});
+
+describe('lists of links as uuids', () => {
+  const u1 = '00000000-0000-4000-8000-000000000001';
+  const u2 = '00000000-0000-4000-8000-000000000002';
+
+  test('a uuid the portal has as a path needs no lookup, and the merged list is written back as uuids', () => {
+    const portal = makePortal(
+      { 'bs-1': { documents: [`/documents/${u1}/`, '/documents/doc-1/'] } },
+      { lookups: { [`/${u2}/`]: `/documents/${u2}/` } }
+    );
+    const { run, requests, grid } = setUp(
+      [
+        ['uuid', 'documents'],
+        ['bs-1', `["${u1}", "${u2}", "doc-1"]`],
+      ],
+      portal,
+      { listProps: ['documents'] }
+    );
+
+    expect(run()).toEqual(outcome({ total: 1, done: 1, changed: 1 }));
+    expect(portal.lookupCalls).toEqual({ [`/${u2}/`]: 1 });
+    expect(portal.objects['bs-1'].documents).toEqual([`/documents/${u1}/`, '/documents/doc-1/', `/documents/${u2}/`]);
+    expect(grid[1][1]).toBe(`["${u1}","/documents/doc-1/","${u2}"]`);
+    expect(grid[1][2]).toBe(
+      `APPEND,200\ndocuments: added /documents/${u2}/; already there: /documents/${u1}/, /documents/doc-1/`
+    );
+
+    // Running it again with the written-back cell: nothing to add, nothing to look up.
+    const before = requests.length;
+    expect(run()).toEqual(outcome({ total: 1, done: 1, unchanged: 1 }));
+    expect(requests.slice(before).filter((r) => r.url.includes('frame=object'))).toEqual([]);
+    expect(patches(requests.slice(before))).toEqual([]);
   });
 });
