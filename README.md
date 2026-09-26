@@ -58,6 +58,16 @@ When a row succeeds, its cell is replaced with the full list from the portal. Li
 
 If rows are sorted, moved or edited while it runs, those rows are left alone and the final message says so. Run it again to finish them.
 
+### Long lists (more than one column)
+
+A Google Sheets cell holds at most 50,000 characters, which as a JSON list is about 1,300 uuids or 900 `@id` paths. A list property such as `derived_from` can therefore continue in further columns named `derived_from#2`, `derived_from#3`, and so on. Each holds an ordinary JSON list, and the parts are joined in order. This works for any list property.
+
+- Validate, POST, PATCH, PUT and Export read the parts as one list. The first column may be empty while a later part has items. A part that is not a JSON list is reported in `#response` for that row, and the row is not sent.
+- GET, and the write-back after POST or `PATCH selected columns (append to lists)`, spread a long list over as many columns as needed. Missing header columns are added at the right end of the header, and parts a shorter list no longer needs are blanked.
+- In `PATCH selected columns` and `PATCH selected columns (append to lists)`, selecting any part selects the whole list, so the portal never receives a truncated list.
+- The object is still found by the first alias in the `aliases` column when `aliases` spans columns.
+- `Highlight sheet with profile schema` styles `derived_from#2` like `derived_from`. A `#2` column for a property that is not a list is flagged as unknown.
+
 ### PUT (Admin only)
 
 PUT sends a PUT request to the portal so that the whole metadata on the portal is replaced with a row on the sheet. **Beware that this will remove any missing properties on the sheet from the portal**.

@@ -352,18 +352,24 @@ function setColorAndTooltipForHeaderProp(sheet, profile, prop, col) {
     return;
   }
 
-  var tooltip = prop.startsWith("#") ? 
-    getTooltipForCommentedProp(prop) : makeTooltipForProp(profile, prop);
+  // A continuation column (e.g. derived_from#2) is styled like the list it continues.
+  var continuation = parseContinuationHeader(prop);
+  var baseProp = continuation ? continuation.base : prop;
+  var tooltip = prop.startsWith("#") ?
+    getTooltipForCommentedProp(prop) : makeTooltipForProp(profile, baseProp);
+  if (continuation) {
+    tooltip = makeTooltipForContinuation(continuation) + "\n\n" + tooltip;
+  }
 
   setCellTooltip(sheet, HEADER_ROW, col, tooltip);
-  setCellColor(sheet, HEADER_ROW, col, getColorForProp(profile, prop));
+  setCellColor(sheet, HEADER_ROW, col, getColorForProp(profile, baseProp));
 
   if (!prop.startsWith("#")) {
     var styles = [];
-    if (isSearchableProp(profile, prop)) {
+    if (isSearchableProp(profile, baseProp)) {
       styles.push(FORMAT_SEARCHABLE_PROP)
     }
-    if (isArrayProp(profile, prop)) {
+    if (isArrayProp(profile, baseProp)) {
       styles.push(FORMAT_ARRAY_PROP)
     }
     if (styles) {
@@ -373,7 +379,7 @@ function setColorAndTooltipForHeaderProp(sheet, profile, prop, col) {
 }
 
 function addDropdownMenuToDataCell(sheet, profile, prop, col) {
-  if (prop === "" || prop.startsWith("#")) {
+  if (prop === "" || prop.startsWith("#") || parseContinuationHeader(prop)) {
     return;
   }
 
@@ -405,7 +411,8 @@ function highlightHeaderAndDataCell(sheet, profile) {
   for (var [i, prop] of currentHeaderProps.entries()) {
     var col = i + 1;
 
-    if (!isCommentedProp(profile, prop) && !profile["properties"].hasOwnProperty(prop)) {
+    if (!isCommentedProp(profile, prop) && !profile["properties"].hasOwnProperty(prop) &&
+        !isContinuationOfListProp(profile, prop)) {
       Logger.info(
         `Property ${prop} does not exist in current profile(${profile.title})\n\n` +
         "Possible mismatch between profile and accession?"

@@ -33,4 +33,5 @@ test('dist/functions.js loads as one script', () => {
   expect(() => vm.runInContext(bundle, sandbox)).not.toThrow();
   expect(typeof sandbox.patchSelectedAppend).toBe('function');
   expect(typeof sandbox.appendToListsInSheet).toBe('function');
+  expect(typeof sandbox.splitListForCells).toBe('function');
 });

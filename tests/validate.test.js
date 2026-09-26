@@ -4,7 +4,7 @@ const vm = require('vm');
 
 const functionsDir = path.join(__dirname, '..', 'functions');
 // Profile.js reads Metadata.js consts at top level, so Metadata.js loads first.
-const FILES = ['Library.js', 'Sheet.js', 'Metadata.js', 'Profile.js'];
+const FILES = ['Library.js', 'Sheet.js', 'Metadata.js', 'Profile.js', 'ListColumns.js'];
 const ENDPOINT = 'https://api.sandbox.lattice-data.org';
 
 const PROFILE = {

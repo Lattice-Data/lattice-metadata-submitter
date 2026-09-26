@@ -9,6 +9,7 @@ append is a read-merge-write done here, one batch of rows at a time:
   3. PATCH only the lists that changed, with If-Match: <ETag>. If the object
      changed after step 1, the portal answers 412 and it is re-read and retried.
   4. Write the merged list back into the cell, so the sheet mirrors the portal.
+     A long list is spread over `prop`, `prop#2`, ... columns (see ListColumns.js).
 
 Before sending and again before writing, each row is checked against what was
 read at the start. A row that was sorted, moved or edited in the meantime is left
@@ -181,13 +182,20 @@ function collectAppendRows(sheetData, profile, listProps) {
     var readCells = {};
     var errors = [];
     listProps.forEach(function(prop) {
-      var value = rowVals[header.indexOf(prop)];
-      readCells[prop] = value;
-      var parsed = parseListCell(value);
-      if (parsed.error) {
-        errors.push(prop + ": " + parsed.error);
-      } else if (parsed.items.length > 0) {
-        additions[prop] = parsed.items;
+      // The items may be spread over `prop`, `prop#2`, ... columns (see ListColumns.js).
+      var items = [];
+      listColumnHeaders(header, prop).forEach(function(name) {
+        var value = rowVals[header.indexOf(name)];
+        readCells[name] = value;
+        var parsed = parseListCell(value);
+        if (parsed.error) {
+          errors.push(name + ": " + parsed.error);
+        } else {
+          items = items.concat(parsed.items);
+        }
+      });
+      if (items.length > 0) {
+        additions[prop] = items;
       }
     });
     if (errors.length === 0 && Object.keys(additions).length === 0) {
@@ -505,30 +513,28 @@ function runAppendAttempt(tasks, profile, profileName, endpoint, cache) {
   return retry;
 }
 
-function appendCellUpdates(rows, colByProp) {
-  // #response and #response_time for every row that is still in place, plus the
-  // merged lists for rows that worked. Failed rows keep their cells, so they can
-  // be fixed and re-run.
+function appendCellUpdates(rows) {
+  // [{row, updates}] for writeCellUpdatesByProp: #response and #response_time for
+  // every row that is still in place, plus the merged lists for rows that worked.
+  // Failed rows keep their cells, so they can be fixed and re-run.
   var time = getCurrentLocalTimeString("");
-  var updates = [];
+  var items = [];
   rows.forEach(function(row) {
     var outcome = row.outcome;
     if (outcome.kind === "moved") {
       return;
     }
-    updates.push({
-      row: row.row,
-      col: colByProp[HEADER_COMMENTED_PROP_RESPONSE],
-      value: "APPEND," + outcome.status + "\n" + outcome.lines.join("\n"),
-    });
-    updates.push({ row: row.row, col: colByProp[HEADER_COMMENTED_PROP_RESPONSE_TIME], value: time });
+    var updates = {};
+    updates[HEADER_COMMENTED_PROP_RESPONSE] = "APPEND," + outcome.status + "\n" + outcome.lines.join("\n");
+    updates[HEADER_COMMENTED_PROP_RESPONSE_TIME] = time;
     if (outcome.lists) {
       Object.keys(outcome.lists).forEach(function(prop) {
-        updates.push({ row: row.row, col: colByProp[prop], value: outcome.lists[prop] });
+        updates[prop] = outcome.lists[prop];
       });
     }
+    items.push({ row: row.row, updates: updates });
   });
-  return updates;
+  return items;
 }
 
 function appendToListsInSheet(sheet, profileName, endpoint, listProps) {
@@ -568,10 +574,7 @@ function appendToListsInSheet(sheet, profileName, endpoint, listProps) {
       tasks = retry;
     }
     markMovedRows(sheet, chunk);
-    var colByProp = ensureHeaderColumns(
-      sheet, [HEADER_COMMENTED_PROP_RESPONSE, HEADER_COMMENTED_PROP_RESPONSE_TIME]
-    );
-    writeCellUpdates(sheet, appendCellUpdates(chunk, colByProp));
+    writeCellUpdatesByProp(sheet, appendCellUpdates(chunk));
     chunk.forEach(function(row) {
       result[row.outcome.kind] += 1;
     });

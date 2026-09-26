@@ -1,6 +1,6 @@
 const { loadFunctions } = require('./support/apps-script-sandbox');
 
-const FILES = ['Library.js', 'Endpoint.js', 'Sheet.js', 'Metadata.js', 'Profile.js'];
+const FILES = ['Library.js', 'Endpoint.js', 'Sheet.js', 'Metadata.js', 'Profile.js', 'ListColumns.js'];
 
 test.each([[''], [' '], ['0'], [0], ['false'], ['FALSE'], [false], ['no'], ['No'], ['n'], ['f'], [null], [undefined]])(
   '#skip value %p does not skip the row',
