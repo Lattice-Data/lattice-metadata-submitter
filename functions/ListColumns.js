@@ -157,6 +157,55 @@ function spreadListValues(json, header) {
   return cells;
 }
 
+// Items of a list of links.
+//
+// The portal answers with @id paths such as /sequence_files/<uuid>/, but it
+// stores the uuid and accepts a bare uuid on POST, PATCH and PUT. A cell holds
+// about 40% more uuids than paths, so lists of links are written to the sheet as
+// the uuid their path ends in. Paths that end in something else (a lab's name,
+// an accession) are left as they are.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function lastPathSegment(path) {
+  var segments = String(path).split("/").filter(function(segment) { return segment !== ""; });
+  return segments.length > 0 ? segments[segments.length - 1] : "";
+}
+
+function toShortLinkIdentifier(value) {
+  // "/sequence_files/<uuid>/" -> "<uuid>"; anything else unchanged.
+  if (typeof value !== "string" || value.charAt(0) !== "/") {
+    return value;
+  }
+  var last = lastPathSegment(value);
+  return UUID_REGEX.test(last) ? last : value;
+}
+
+function toCellLinkList(profile, prop, value) {
+  // What a property's value looks like in a cell: a list of links as uuids where
+  // the portal's paths end in one; any other value as it is.
+  if (!Array.isArray(value) || !isLinkListProp(profile, prop)) {
+    return value;
+  }
+  return value.map(toShortLinkIdentifier);
+}
+
+function findEquivalentLink(current, value) {
+  // The item of `current` (the portal's @id paths) that names the same object as
+  // `value`: the same path, or a path that ends in `value`, e.g. a uuid as GET
+  // writes it. null when there is none.
+  var text = String(value).trim();
+  if (text === "") {
+    return null;
+  }
+  for (var i = 0; i < current.length; i++) {
+    var item = current[i];
+    if (item === text || (typeof item === "string" && lastPathSegment(item) === text)) {
+      return item;
+    }
+  }
+  return null;
+}
+
 function makeTooltipForContinuation(continuation) {
   return "Part " + continuation.part + " of " + continuation.base + ".\n" +
     "A list too long for one cell continues here as another JSON list. " +

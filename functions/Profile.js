@@ -106,6 +106,12 @@ function isArrayProp(profile, prop) {
   return propType && propType === "array";
 }
 
+function isLinkListProp(profile, prop) {
+  // a list whose items link to other objects, e.g. derived_from or documents
+  var propInProfile = profile["properties"][prop];
+  return !!(propInProfile && propInProfile["items"] && propInProfile["items"].hasOwnProperty("linkTo"));
+}
+
 function makeSearchUrlForProp(profile, prop, endpoint) {
   if (!isSearchableProp(profile, prop)) {
     return;

@@ -71,10 +71,13 @@ function getMetadataFromPortal(identifyingVal, identifyingProp, profileName, end
 
   // filter out non gettable property
   // see function isGettableProp in Profile.gs for details
+  // Lists of links are written as uuids, not @id paths (see ListColumns.js).
   var profile = getProfile(profileName, endpoint);
   var filteredResponseJson = Object.keys(responseJson)
     .filter((prop) => isGettableProp(profile, prop, forAdmin))
-    .reduce((cur, prop) => { return Object.assign(cur, { [prop]: responseJson[prop] })}, {});
+    .reduce((cur, prop) => {
+      return Object.assign(cur, { [prop]: toCellLinkList(profile, prop, responseJson[prop]) });
+    }, {});
 
   // then merge it with commented properties
   object[identifyingProp] = identifyingVal;

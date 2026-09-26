@@ -38,6 +38,8 @@ Also, if cell's value is empty for a certain property then such property is simp
 
 GET will send a GET request to the portal and will convert retrieved metadata to a row on the sheet.
 
+Lists of links, such as `derived_from`, are written as bare uuids rather than `@id` paths. The portal stores uuids and accepts them on POST, PATCH and PUT, and they take much less room in a cell.
+
 ### POST
 
 POST sends a POST request to the portal. Use this to submit a new metadata and generate an accession/ID.
@@ -54,19 +56,21 @@ Select one or more list columns and click on `PATCH selected columns (append to 
 
 For each row, the script reads the object's current list from the portal, adds the items that are not there yet, and sends the merged list. Nothing is removed and nothing is added twice, so running it again is safe. Rows for the same object are combined into one update. If someone else changes the object at the same moment, the portal refuses the write and the script re-reads and retries.
 
-When a row succeeds, its cell is replaced with the full list from the portal. Linked items (e.g. `documents`) can be given as uuids, aliases or `@id` paths; they are written back as `@id` paths. Each row needs a value to find the object by, such as `uuid`. A list you are appending to can't be used for that, so appending to `aliases` needs a `uuid` column.
+When a row succeeds, its cell is replaced with the full list from the portal. Linked items (e.g. `documents`) can be given as uuids, aliases or `@id` paths; they are written back as uuids, as GET writes them. Each row needs a value to find the object by, such as `uuid`. A list you are appending to can't be used for that, so appending to `aliases` needs a `uuid` column.
 
 If rows are sorted, moved or edited while it runs, those rows are left alone and the final message says so. Run it again to finish them.
 
 ### Long lists (more than one column)
 
-A Google Sheets cell holds at most 50,000 characters, which as a JSON list is about 1,300 uuids or 900 `@id` paths. A list property such as `derived_from` can therefore continue in further columns named `derived_from#2`, `derived_from#3`, and so on. Each holds an ordinary JSON list, and the parts are joined in order. This works for any list property.
+A Google Sheets cell holds at most 50,000 characters, which as a JSON list is about 1,300 uuids or 900 `@id` paths (one reason lists of links are written as uuids). A list property such as `derived_from` can therefore continue in further columns named `derived_from#2`, `derived_from#3`, and so on. Each holds an ordinary JSON list, and the parts are joined in order. This works for any list property.
 
 - Validate, POST, PATCH, PUT and Export read the parts as one list. The first column may be empty while a later part has items. A part that is not a JSON list is reported in `#response` for that row, and the row is not sent.
 - GET, and the write-back after POST or `PATCH selected columns (append to lists)`, spread a long list over as many columns as needed. Missing header columns are added at the right end of the header, and parts a shorter list no longer needs are blanked.
 - In `PATCH selected columns` and `PATCH selected columns (append to lists)`, selecting any part selects the whole list, so the portal never receives a truncated list.
 - The object is still found by the first alias in the `aliases` column when `aliases` spans columns.
 - `Highlight sheet with profile schema` styles `derived_from#2` like `derived_from`. A `#2` column for a property that is not a list is flagged as unknown.
+
+To try it against the dev portal, see [`docs/MANUAL_TEST_LONG_LISTS.md`](docs/MANUAL_TEST_LONG_LISTS.md); `scripts/long_list_cells.py` makes the cells.
 
 ### PUT (Admin only)
 

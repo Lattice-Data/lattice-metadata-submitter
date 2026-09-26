@@ -105,11 +105,6 @@ function toIfMatchValue(etag) {
   return String(etag).replace(/^W\//, "");
 }
 
-function isLinkListProp(profile, prop) {
-  var propInProfile = profile["properties"][prop];
-  return !!(propInProfile && propInProfile["items"] && propInProfile["items"].hasOwnProperty("linkTo"));
-}
-
 function encodePathSegment(segment) {
   // decode first, so a segment that is already encoded isn't encoded twice
   var decoded = segment;
@@ -346,12 +341,16 @@ function lookUpLinks(paths, endpoint, cache) {
 function resolveLinkAdditions(rows, profile, endpoint, cache) {
   // For lists of links, turn each new value (uuid, alias or path) into the @id
   // path the portal stores, so the same object always compares equal. A value
-  // already in the portal's list verbatim needs no lookup. Sets
-  // row.additionsToMerge, or row.outcome when a value can't be resolved.
-  // `cache` (see lookUpLinks) lasts the whole run.
+  // the portal's list already has, as the same path or as the uuid a path ends
+  // in (the form GET writes back), needs no lookup and is merged as the portal
+  // spells it. Sets row.additionsToMerge, or row.outcome when a value can't be
+  // resolved. `cache` (see lookUpLinks) lasts the whole run.
   var urlPrefixes = [endpoint, getUIEndpoint(endpoint)];
+  var presentAs = function(row, prop, value) {
+    return isLinkListProp(profile, prop) ? findEquivalentLink(row.current[prop], value) : null;
+  };
   var needsLookup = function(row, prop, value) {
-    return isLinkListProp(profile, prop) && row.current[prop].indexOf(value) < 0;
+    return isLinkListProp(profile, prop) && presentAs(row, prop, value) === null;
   };
 
   var paths = [];
@@ -379,8 +378,12 @@ function resolveLinkAdditions(rows, profile, endpoint, cache) {
     row.additionsToMerge = {};
     Object.keys(row.additions).forEach(function(prop) {
       row.additionsToMerge[prop] = row.additions[prop].map(function(value) {
-        if (!needsLookup(row, prop, value)) {
+        if (!isLinkListProp(profile, prop)) {
           return value;
+        }
+        var present = presentAs(row, prop, value);
+        if (present !== null) {
+          return present;
         }
         var path = toLinkLookupPath(value, urlPrefixes);
         if (failedCodes.has(path)) {
@@ -469,7 +472,7 @@ function runAppendAttempt(tasks, profile, profileName, endpoint, cache) {
       Object.keys(row.additionsToMerge).forEach(function(prop) {
         var own = mergeListItems(task.current[prop], row.additionsToMerge[prop]);
         row.pending.lines.push(describeListAppend(prop, own));
-        row.pending.lists[prop] = lists[prop];
+        row.pending.lists[prop] = toCellLinkList(profile, prop, lists[prop]);
         if (own.added.length > 0) {
           row.pending.addsSomething = true;
         }

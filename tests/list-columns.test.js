@@ -26,9 +26,9 @@ const PROFILE = {
   },
 };
 
-// n uuid-like ids, "00000000-0000-4000-8000-000000000001" on, as Lattice @id paths.
-const paths = (n) =>
-  Array.from({ length: n }, (_, i) => `/sequence_files/00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}/`);
+// n uuid-like ids, "00000000-0000-4000-8000-000000000001" on, bare and as Lattice @id paths.
+const uuids = (n) => Array.from({ length: n }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
+const paths = (n) => uuids(n).map((uuid) => `/sequence_files/${uuid}/`);
 // The list held by a property's cells, first part to last.
 const joinCells = (cells) => cells.filter((cell) => cell !== '').flatMap((cell) => JSON.parse(cell));
 
@@ -106,6 +106,37 @@ describe('splitting and spreading lists', () => {
   });
 });
 
+describe('items of a list of links', () => {
+  const fns = loadFunctions(FILES);
+  const [u1, u2] = uuids(2);
+
+  test('toShortLinkIdentifier keeps the uuid an @id path ends in and leaves anything else alone', () => {
+    expect(fns.toShortLinkIdentifier(`/sequence_files/${u1}/`)).toBe(u1);
+    expect(fns.toShortLinkIdentifier(`/documents/${u1.toUpperCase()}`)).toBe(u1.toUpperCase());
+    expect(fns.toShortLinkIdentifier('/labs/alex-marson/')).toBe('/labs/alex-marson/');
+    expect(fns.toShortLinkIdentifier('/awards/HG012345/')).toBe('/awards/HG012345/');
+    expect(fns.toShortLinkIdentifier(u1)).toBe(u1);
+    expect(fns.toShortLinkIdentifier('lab:alias')).toBe('lab:alias');
+    expect(fns.toShortLinkIdentifier({ x: 1 })).toEqual({ x: 1 });
+  });
+
+  test('toCellLinkList converts lists of links only', () => {
+    expect(fns.toCellLinkList(PROFILE, 'derived_from', [`/sequence_files/${u1}/`, '/labs/l/'])).toEqual([u1, '/labs/l/']);
+    expect(fns.toCellLinkList(PROFILE, 'aliases', [`/x/${u1}/`])).toEqual([`/x/${u1}/`]);
+    expect(fns.toCellLinkList(PROFILE, 'derived_from', `/sequence_files/${u1}/`)).toBe(`/sequence_files/${u1}/`);
+  });
+
+  test('findEquivalentLink finds the portal item a path or uuid names', () => {
+    const current = [`/sequence_files/${u1}/`, '/labs/alex-marson/'];
+    expect(fns.findEquivalentLink(current, `/sequence_files/${u1}/`)).toBe(`/sequence_files/${u1}/`);
+    expect(fns.findEquivalentLink(current, ` ${u1} `)).toBe(`/sequence_files/${u1}/`);
+    expect(fns.findEquivalentLink(current, 'alex-marson')).toBe('/labs/alex-marson/');
+    expect(fns.findEquivalentLink(current, u2)).toBeNull();
+    expect(fns.findEquivalentLink(current, 'lab:alias')).toBeNull();
+    expect(fns.findEquivalentLink(current, '')).toBeNull();
+  });
+});
+
 describe('reading a row', () => {
   const fns = loadFunctions(FILES);
   const read = (header, values) => fns.rowDataToJson(header, values, values.map(String), true, true);
@@ -147,7 +178,7 @@ describe('GET', () => {
     return { fns, run, ...fake };
   }
 
-  test('spreads a long list over new columns, each within the limit, and blanks them for a shorter list', () => {
+  test('writes links as uuids over new columns, each within the limit, and blanks them for a shorter list', () => {
     const objects = {
       'u-1': { uuid: 'u-1', derived_from: paths(3000), description: 'long' },
       'u-2': { uuid: 'u-2', derived_from: paths(2), description: 'short' },
@@ -164,27 +195,23 @@ describe('GET', () => {
 
     const col = (name) => grid[0].indexOf(name);
     const partCells = (row) => fns.listColumnHeaders(grid[0], 'derived_from').map((name) => grid[row][col(name)]);
-    expect(fns.listColumnHeaders(grid[0], 'derived_from')).toEqual([
-      'derived_from',
-      'derived_from#2',
-      'derived_from#3',
-      'derived_from#4',
-      'derived_from#5',
-    ]);
+    // The portal's @id paths land as bare uuids: 3,000 of them take three columns.
+    expect(fns.listColumnHeaders(grid[0], 'derived_from')).toEqual(['derived_from', 'derived_from#2', 'derived_from#3']);
     partCells(1).forEach((cell) => expect(cell.length).toBeLessThanOrEqual(CELL_MAX));
-    expect(joinCells(partCells(1))).toEqual(paths(3000));
+    expect(joinCells(partCells(1))).toEqual(uuids(3000));
     expect(grid[1][col('description')]).toBe('long');
     expect(grid[1][col('#response')]).toBe('GET,200');
     // The short list needs the first column only.
-    expect(partCells(2)).toEqual([JSON.stringify(paths(2)), '', '', '', '']);
+    expect(partCells(2)).toEqual([JSON.stringify(uuids(2)), '', '']);
     expect(grid[2][col('description')]).toBe('short');
 
     // The list shrinks on the portal: the next GET blanks the parts it no longer needs.
-    objects['u-1'].derived_from = paths(800);
+    objects['u-1'].derived_from = paths(1200);
     expect(run()).toEqual({ updated: 2, failed: 0 });
-    expect(joinCells(partCells(1))).toEqual(paths(800));
-    expect(partCells(1).slice(2)).toEqual(['', '', '']);
-    expect(grid[0]).toHaveLength(9);
+    expect(joinCells(partCells(1))).toEqual(uuids(1200));
+    expect(partCells(1)[1]).not.toBe('');
+    expect(partCells(1)[2]).toBe('');
+    expect(grid[0]).toHaveLength(7);
   });
 });
 

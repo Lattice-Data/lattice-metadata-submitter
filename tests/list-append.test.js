@@ -575,3 +575,37 @@ describe('lists spread over several columns', () => {
     expect(fake.grid[1].slice(0, 3)).toEqual(['bs-1', '["lab:a","lab:b","lab:edited"]', '']);
   });
 });
+
+describe('lists of links as uuids', () => {
+  const u1 = '00000000-0000-4000-8000-000000000001';
+  const u2 = '00000000-0000-4000-8000-000000000002';
+
+  test('a uuid the portal has as a path needs no lookup, and the merged list is written back as uuids', () => {
+    const portal = makePortal(
+      { 'bs-1': { documents: [`/documents/${u1}/`, '/documents/doc-1/'] } },
+      { lookups: { [`/${u2}/`]: `/documents/${u2}/` } }
+    );
+    const { run, requests, grid } = setUp(
+      [
+        ['uuid', 'documents'],
+        ['bs-1', `["${u1}", "${u2}", "doc-1"]`],
+      ],
+      portal,
+      { listProps: ['documents'] }
+    );
+
+    expect(run()).toEqual(outcome({ total: 1, done: 1, changed: 1 }));
+    expect(portal.lookupCalls).toEqual({ [`/${u2}/`]: 1 });
+    expect(portal.objects['bs-1'].documents).toEqual([`/documents/${u1}/`, '/documents/doc-1/', `/documents/${u2}/`]);
+    expect(grid[1][1]).toBe(`["${u1}","/documents/doc-1/","${u2}"]`);
+    expect(grid[1][2]).toBe(
+      `APPEND,200\ndocuments: added /documents/${u2}/; already there: /documents/${u1}/, /documents/doc-1/`
+    );
+
+    // Running it again with the written-back cell: nothing to add, nothing to look up.
+    const before = requests.length;
+    expect(run()).toEqual(outcome({ total: 1, done: 1, unchanged: 1 }));
+    expect(requests.slice(before).filter((r) => r.url.includes('frame=object'))).toEqual([]);
+    expect(patches(requests.slice(before))).toEqual([]);
+  });
+});
