@@ -70,11 +70,19 @@ function mergeListItems(existing, additions) {
 }
 
 function describeListAppend(prop, result) {
-  // one #response line, e.g. "aliases: added lab:b; already there: lab:a"
+  // one #response line, e.g. "aliases: added lab:b; already there: lab:a".
+  // A long run of items shows its first few and a count, so the line fits in the
+  // cell however long the list is.
   var show = function(items) {
-    return items.map(function(item) {
+    var shown = items.length > RESPONSE_LIST_MAX_ITEMS ? items.slice(0, RESPONSE_LIST_SHOWN_ITEMS) : items;
+    var text = shown.map(function(item) {
       return typeof item === "string" ? item : JSON.stringify(item);
     }).join(", ");
+    if (shown.length < items.length) {
+      text += " and " + formatNumber(items.length - shown.length) + " more (" +
+        formatNumber(items.length) + " in all)";
+    }
+    return text;
   };
   var parts = [];
   if (result.added.length > 0) {
@@ -143,7 +151,7 @@ function makeAppendPatchUrl(endpoint, profileName, identifier) {
 function formatResponseBody(response) {
   var text = response.getContentText();
   try {
-    return JSON.stringify(JSON.parse(text), null, HELP_TEXT_INDENT);
+    return formatResponseJson(JSON.parse(text));
   } catch (e) {
     return text.substring(0, 500);
   }

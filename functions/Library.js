@@ -29,6 +29,11 @@ function escapeHtml(text) {
     .replace(/'/g, "&#39;");
 }
 
+function formatNumber(n) {
+  // 2500 -> "2,500"
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 function isArrayString(str) {
   var trimmed = str.trim();
   return trimmed.startsWith("[") && trimmed.endsWith("]");

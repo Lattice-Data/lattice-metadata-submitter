@@ -14,6 +14,44 @@ const TOOLTIP_FOR_PROP_RESPONSE = "Action + HTTP error code + JSON response\n\n"
 const TOOLTIP_FOR_PROP_RESPONSE_TIME = "Time of latest response";
 
 
+// #response shows the portal's answer. A POST is answered with the whole new
+// object, so a long list in it (derived_from with thousands of files) would not
+// fit in the cell: a long list keeps its first few items and a count, and a long
+// string its start and end.
+const RESPONSE_LIST_MAX_ITEMS = 10;
+const RESPONSE_LIST_SHOWN_ITEMS = 3;
+const RESPONSE_STRING_MAX_CHARS = 2000;
+
+function abbreviateForResponse(value) {
+  // a copy of a JSON value with long lists and strings shortened, for #response
+  if (Array.isArray(value)) {
+    if (value.length <= RESPONSE_LIST_MAX_ITEMS) {
+      return value.map(function(item) { return abbreviateForResponse(item); });
+    }
+    return value.slice(0, RESPONSE_LIST_SHOWN_ITEMS)
+      .map(function(item) { return abbreviateForResponse(item); })
+      .concat([
+        "… " + formatNumber(value.length - RESPONSE_LIST_SHOWN_ITEMS) + " more, " +
+        formatNumber(value.length) + " in all"
+      ]);
+  }
+  if (value !== null && typeof value === "object") {
+    var copy = {};
+    Object.keys(value).forEach(function(key) {
+      copy[key] = abbreviateForResponse(value[key]);
+    });
+    return copy;
+  }
+  if (typeof value === "string") {
+    return fitTextInCell(value, RESPONSE_STRING_MAX_CHARS);
+  }
+  return value;
+}
+
+function formatResponseJson(json) {
+  return JSON.stringify(abbreviateForResponse(json), null, HELP_TEXT_INDENT);
+}
+
 function getTooltipForCommentedProp(prop) {
   if (prop === HEADER_COMMENTED_PROP_SKIP) {
     return TOOLTIP_FOR_PROP_SKIP;
@@ -65,7 +103,7 @@ function getMetadataFromPortal(identifyingVal, identifyingProp, profileName, end
   }
   if (error !== 200) {
     // if error, write helpText to provide debugging information
-    object[HEADER_COMMENTED_PROP_RESPONSE] += "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
+    object[HEADER_COMMENTED_PROP_RESPONSE] += "\n" + formatResponseJson(responseJson);
     return { ok: false, object: object };
   }
 
@@ -511,7 +549,7 @@ function processSubmissionResponse(item, response, profile, method, selectedCols
         }
       });
       updates[HEADER_COMMENTED_PROP_RESPONSE] +=
-        "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
+        "\n" + formatResponseJson(responseJson);
       break;
     case 422:
       updates[HEADER_COMMENTED_PROP_RESPONSE] +=
@@ -519,7 +557,7 @@ function processSubmissionResponse(item, response, profile, method, selectedCols
       // Falls through intentionally — keep original behavior.
     default:
       updates[HEADER_COMMENTED_PROP_RESPONSE] +=
-        "\n" + JSON.stringify(responseJson, null, HELP_TEXT_INDENT);
+        "\n" + formatResponseJson(responseJson);
   }
   item.updates = updates;
 }
@@ -773,7 +811,7 @@ function validateSheet(sheet, profileName, endpointForProfile) {
       // e.g. a cell that looks like JSON but isn't: report it on the row and go on
       message = "Could not validate this row: " + e;
     }
-    results.push({ row: HEADER_ROW + 1 + i, message: message, time: getCurrentLocalTimeString("") });
+    results.push({ row: HEADER_ROW + 1 + i, message: fitTextInCell(message), time: getCurrentLocalTimeString("") });
   }
   if (results.length === 0) {
     return 0;

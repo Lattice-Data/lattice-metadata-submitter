@@ -609,3 +609,23 @@ describe('lists of links as uuids', () => {
     expect(patches(requests.slice(before))).toEqual([]);
   });
 });
+
+describe('a long list that is already on the portal', () => {
+  test('running the append again reports it in one line that fits the cell, with no lookups', () => {
+    const list = Array.from({ length: 2500 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
+    const parts = loadFunctions(FILES).splitListForCells(list);
+    const portal = makePortal({ 'bs-1': { documents: list.map((u) => `/documents/${u}/`) } });
+    const { run, requests, grid } = setUp([['uuid', 'documents', 'documents#2', 'documents#3'], ['bs-1', ...parts]], portal, {
+      listProps: ['documents'],
+    });
+
+    expect(run()).toEqual(outcome({ total: 1, done: 1, unchanged: 1 }));
+    expect(requests.filter((r) => r.url.includes('frame=object'))).toEqual([]);
+    expect(patches(requests)).toEqual([]);
+    expect(grid[1][grid[0].indexOf('#response')]).toBe(
+      'APPEND,no change\ndocuments: already there: ' +
+        `/documents/${list[0]}/, /documents/${list[1]}/, /documents/${list[2]}/ and 2,497 more (2,500 in all)`
+    );
+    expect(grid[1].slice(1, 4)).toEqual(parts);
+  });
+});

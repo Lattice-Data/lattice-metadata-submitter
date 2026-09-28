@@ -68,6 +68,7 @@ A Google Sheets cell holds at most 50,000 characters, which as a JSON list is ab
 - GET, and the write-back after POST or `PATCH selected columns (append to lists)`, spread a long list over as many columns as needed. Missing header columns are added at the right end of the header, and parts a shorter list no longer needs are blanked.
 - In `PATCH selected columns` and `PATCH selected columns (append to lists)`, selecting any part selects the whole list, so the portal never receives a truncated list.
 - The object is still found by the first alias in the `aliases` column when `aliases` spans columns.
+- `#response` shows the portal's answer with each long list cut to its first three items and a count, e.g. `"… 2,497 more, 2,500 in all"`, so it fits in its cell. A POST is answered with the whole new object, long lists included.
 - `Highlight sheet with profile schema` styles `derived_from#2` like `derived_from`. A `#2` column for a property that is not a list is flagged as unknown.
 
 To try it against the dev portal, see [`docs/MANUAL_TEST_LONG_LISTS.md`](docs/MANUAL_TEST_LONG_LISTS.md); `scripts/long_list_cells.py` makes the cells.

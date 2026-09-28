@@ -42,13 +42,17 @@ For a self-contained test on another profile, `--prop aliases --lab <your-lab> -
 | --- | --- | --- |
 | Validate | Menu → **Validate** | `#response` is `ValidationSuccess`. Then paste a uuid from `derived_from` into `derived_from#3` as well and Validate again: a `uniqueItems` error for `/derived_from`. Undo. |
 | Highlight | **🛠 Tools → Highlight sheet with profile schema** | `derived_from#2` and `#3` are red, bold-italic and underlined like `derived_from`; hovering shows "Part 2 of derived_from". No "missing properties" alert. |
-| POST | Menu → **POST new metadata to portal** | `POST,201`, and `uuid` is filled in. |
+| POST | Menu → **POST new metadata to portal** | `POST,201`, and `uuid` is filled in. `#response` shows the new object with `derived_from` cut to three paths and `"… 2,497 more, 2,500 in all"`. |
 | GET | Clear the three `derived_from*` cells, then **GET metadata from portal** | The cells are refilled with bare uuids, in order, each under 40,000 characters. No new column appears. |
 | Shrink | Put `["<one uuid>"]` in `derived_from`, blank `#2` and `#3`; select the `derived_from` column → **PATCH selected columns** | The dialog says `derived_from (3 columns)`; `PATCH,200`. Clear the cells and GET: only `derived_from` is filled, `#2` and `#3` stay blank. |
 | Whole list from one part | Paste the three parts back; select **only** `derived_from#2` → **PATCH selected columns** | The dialog says the list is sent whole; `PATCH,200`. Clear and GET: all three columns are filled again. |
 | Append | Clear the three cells; put `["<spare uuid>"]` in `derived_from`; select that column → **PATCH selected columns (append to lists)** | `APPEND,200`, `derived_from: added /sequence_files/<spare uuid>/`; the cells hold the full list again, 2,501 uuids over three columns. |
-| Append again | Run the same append with the cells as they are | `APPEND,no change`, quickly: nothing is looked up. |
+| Append again | Run the same append with the cells as they are | `APPEND,no change`, quickly: nothing is looked up. The line ends `and 2,498 more (2,501 in all)`. |
 | Bad part | Type `x` into `derived_from#2` → **Validate**; then **PATCH selected columns** | `Could not validate this row: Error: derived_from#2 must be a JSON list…`. The PATCH alert says `1 row(s) were not sent…` and the row's `#response` starts with `PATCH,error`. Fix the cell. |
 | Export | **🛠 Tools → Export selected row to JSON** | One `derived_from` list holding every uuid. |
 
 The test file stays on dev with its `derived_from`, which is fine there.
+
+If a run stops with an error dialog, the portal may already have done the work: POST sends first and writes the answer afterwards. Before running POST again, run **GET**. The row's alias finds the object if it was created, and fills in `uuid`. A POST repeated with the same alias is refused as a conflict, so it cannot create a duplicate.
+
+`status` is admin-only in the dev schema, so GET leaves that column blank for a regular user even though the portal has `current`.

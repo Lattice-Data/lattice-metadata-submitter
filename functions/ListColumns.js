@@ -12,10 +12,13 @@ POST or append) splits a list that would not fit into as many parts as needed,
 adds the header columns it lacks, and blanks parts that are no longer needed,
 see spreadListValues. Any list property works this way, and a sheet without
 continuation columns behaves as before.
+
+Text the tool writes into its own # columns, such as #response, is shortened to
+fit in its cell instead (fitTextInCell). Data is never shortened.
 */
 
 // Sheets refuses more than 50,000 characters in a cell; keep some headroom.
-const LIST_CELL_MAX_CHARS = 40000;
+const CELL_MAX_CHARS = 40000;
 // "derived_from#2": a property name, "#", and the part number.
 const CONTINUATION_HEADER_REGEX = /^([^#\s]+)#([0-9]+)$/;
 
@@ -112,7 +115,7 @@ function splitListForCells(list, maxChars) {
   // JSON strings for `list` in parts that each fit in maxChars, in order: items
   // are never split, so an item longer than maxChars gets a part of its own.
   // An empty list is one part, "[]".
-  var limit = maxChars || LIST_CELL_MAX_CHARS;
+  var limit = maxChars || CELL_MAX_CHARS;
   var parts = [];
   var current = [];
   var length = 2; // the brackets
@@ -133,17 +136,37 @@ function splitListForCells(list, maxChars) {
   return parts.map(function(part) { return JSON.stringify(part); });
 }
 
+function fitTextInCell(text, maxChars) {
+  // `text` when it fits in maxChars; otherwise its start and end around a note of
+  // its full length, maxChars long at most.
+  var limit = maxChars || CELL_MAX_CHARS;
+  var s = String(text);
+  if (s.length <= limit) {
+    return s;
+  }
+  var note = "\n[… shortened to fit in a cell: " + formatNumber(s.length) + " characters in all …]\n";
+  var room = Math.max(0, limit - note.length);
+  var head = Math.ceil(room * 3 / 4);
+  return s.substring(0, head) + note + s.substring(s.length - (room - head));
+}
+
 function spreadListValues(json, header) {
   // Cell values by header name for every property in `json`. A list too long for
   // one cell becomes `prop`, `prop#2`, ... Continuation columns in `header` that
   // belong to a property in `json` but get no part are set to "", so a shorter
-  // list never leaves stale parts behind.
+  // list never leaves stale parts behind. Text for the tool's own # columns
+  // (#response) is shortened to fit rather than refused by the sheet.
   var cells = {};
   Object.keys(json).forEach(function(prop) {
     var value = json[prop];
-    var parts = Array.isArray(value)
-      ? splitListForCells(value, LIST_CELL_MAX_CHARS)
-      : [toCellValue(value)];
+    var parts;
+    if (prop.startsWith("#") && typeof value === "string") {
+      parts = [fitTextInCell(value)];
+    } else if (Array.isArray(value)) {
+      parts = splitListForCells(value, CELL_MAX_CHARS);
+    } else {
+      parts = [toCellValue(value)];
+    }
     parts.forEach(function(part, i) {
       cells[i === 0 ? prop : continuationHeader(prop, i + 1)] = part;
     });

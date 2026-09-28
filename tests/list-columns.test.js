@@ -137,6 +137,50 @@ describe('items of a list of links', () => {
   });
 });
 
+describe('text that must fit in a cell', () => {
+  const fns = loadFunctions(FILES);
+
+  test('fitTextInCell keeps text that fits and shortens the rest to its start and end', () => {
+    expect(fns.fitTextInCell('short')).toBe('short');
+    const long = `START${'a'.repeat(60000)}END`;
+    const fitted = fns.fitTextInCell(long);
+    expect(fitted.length).toBeLessThanOrEqual(CELL_MAX);
+    expect(fitted.startsWith('STARTaaa')).toBe(true);
+    expect(fitted.endsWith('aaaEND')).toBe(true);
+    expect(fitted).toContain('[… shortened to fit in a cell: 60,008 characters in all …]');
+    expect(fns.fitTextInCell('x'.repeat(5000), 100)).toHaveLength(100);
+  });
+
+  test('abbreviateForResponse shortens long lists and strings anywhere in an answer', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => i);
+    const answer = {
+      ten,
+      eleven: ten.concat([10]),
+      nested: [{ text: `${'x'.repeat(3000)}END`, n: 1, ok: true, none: null }],
+    };
+    const short = fns.abbreviateForResponse(answer);
+    expect(short.ten).toEqual(ten);
+    expect(short.eleven).toEqual([0, 1, 2, '… 8 more, 11 in all']);
+    expect(short.nested[0].text.length).toBeLessThanOrEqual(2000);
+    expect(short.nested[0].text.endsWith('xEND')).toBe(true);
+    expect(short.nested[0]).toMatchObject({ n: 1, ok: true, none: null });
+    expect(answer.eleven).toHaveLength(11); // the answer itself is left as it was
+  });
+
+  test('writeCellUpdatesByProp shortens text for the tool\'s # columns but never data', () => {
+    const { sheet, grid } = makeFakeSheet([
+      ['#response', 'description'],
+      ['', ''],
+    ]);
+    fns.writeCellUpdatesByProp(sheet, [{ row: 2, updates: { '#response': 'x'.repeat(120000) } }]);
+    expect(grid[1][0].length).toBeLessThanOrEqual(CELL_MAX);
+    // Data too long for a cell is refused by the sheet, as before, rather than cut short.
+    expect(() => fns.writeCellUpdatesByProp(sheet, [{ row: 2, updates: { description: 'y'.repeat(60000) } }])).toThrow(
+      /50000 characters/
+    );
+  });
+});
+
 describe('reading a row', () => {
   const fns = loadFunctions(FILES);
   const read = (header, values) => fns.rowDataToJson(header, values, values.map(String), true, true);
@@ -287,6 +331,95 @@ describe('POST, PATCH and Validate', () => {
     ]);
     expect(cell(1, '#response')).toBe('PATCH,200\nSelected props: derived_from');
     expect(cell(2, '#response')).toMatch(/^PATCH,error\nCould not read this row/);
+  });
+
+  // Like snovault's collection_add: a POST is answered with the new object in the
+  // object frame, links as @id paths, so a long derived_from comes back whole.
+  const echoPost = (uuid) => (req) => {
+    const body = JSON.parse(req.payload);
+    return {
+      code: 201,
+      body: {
+        status: 'success',
+        '@type': ['result'],
+        '@graph': [
+          {
+            ...body,
+            derived_from: (body.derived_from || []).map((u) => `/sequence_files/${u}/`),
+            '@id': `/sequence_files/${uuid}/`,
+            uuid,
+            status: 'current',
+          },
+        ],
+      },
+    };
+  };
+  const NEW_UUID = 'f43eed62-4b5f-45d9-9fda-d920c65339d8';
+
+  test('POST of a 2,500-item list: the answer echoes the list, and #response is shortened to fit its cell', () => {
+    const parts = loadFunctions(FILES).splitListForCells(uuids(2500)); // the three cells as pasted
+    expect(parts).toHaveLength(3);
+    const { fns, sheet, grid } = setUp(
+      [
+        ['#response', '#response_time', 'uuid', 'aliases', 'derived_from', 'derived_from#2', 'derived_from#3'],
+        ['ValidationSuccess', 't', '', '["lab:long-1"]', ...parts],
+      ],
+      echoPost(NEW_UUID)
+    );
+
+    expect(fns.submitSheetToPortal(sheet, 'sequence_file', ENDPOINT, ENDPOINT, 'POST').numSubmitted).toBe(1);
+
+    expect(grid[1][2]).toBe(NEW_UUID);
+    expect(grid[1].slice(3)).toEqual(['["lab:long-1"]', ...parts]);
+    const response = grid[1][0];
+    expect(response).toMatch(/^POST,201\n\{/);
+    expect(response.length).toBeLessThan(2000);
+    const answer = JSON.parse(response.slice('POST,201\n'.length))['@graph'][0];
+    expect(answer.derived_from).toEqual([...paths(3), '… 2,497 more, 2,500 in all']);
+    expect(answer.uuid).toBe(NEW_UUID);
+  });
+
+  test('an error answer with thousands of entries is shortened too, keeping the end of a long message', () => {
+    const list = uuids(2500);
+    const parts = loadFunctions(FILES).splitListForCells(list);
+    // Like a snovault 422: one error that prints the whole list, then one per item.
+    const { fns, sheet, grid } = setUp(
+      [
+        ['#response', 'aliases', 'derived_from', 'derived_from#2', 'derived_from#3'],
+        ['', '["lab:long-1"]', ...parts],
+      ],
+      () => ({
+        code: 422,
+        body: {
+          '@type': ['ValidationFailure', 'Error'],
+          status: 'error',
+          code: 422,
+          title: 'Unprocessable Entity',
+          description: 'Failed validation',
+          errors: [
+            {
+              location: 'body',
+              name: ['derived_from'],
+              description: `[${list.map((u) => `'${u}'`).join(', ')}] has non-unique elements`,
+            },
+          ].concat(list.map((u, i) => ({ location: 'body', name: ['derived_from', i], description: `${u} not found` }))),
+        },
+      })
+    );
+
+    expect(fns.submitSheetToPortal(sheet, 'sequence_file', ENDPOINT, ENDPOINT, 'POST').numSubmitted).toBe(1);
+
+    const response = grid[1][0];
+    expect(response).toMatch(/^POST,422\nIf error message is not helpful, try Validate on the menu\.\n\n\{/);
+    expect(response.length).toBeLessThan(5000);
+    const answer = JSON.parse(response.slice(response.indexOf('{')));
+    expect(answer.errors).toHaveLength(4);
+    expect(answer.errors[3]).toBe('… 2,498 more, 2,501 in all');
+    expect(answer.errors[0].description.length).toBeLessThanOrEqual(2000);
+    expect(answer.errors[0].description.endsWith('] has non-unique elements')).toBe(true);
+    // The data cells are as they were; #response_time is added at the end of the row.
+    expect(grid[0].slice(5)).toEqual(['#response_time']);
+    expect(grid[1].slice(1, 5)).toEqual(['["lab:long-1"]', ...parts]);
   });
 
   test('Validate checks the joined list, so an item repeated across parts is reported', () => {
