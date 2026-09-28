@@ -36,6 +36,14 @@ function makeFakeSheet(rows, hiddenRows = []) {
         getValues: read,
         getDisplayValues: () => read().map((r) => r.map(String)),
         setValues: (vals) => {
+          // Sheets refuses the whole write when any cell would exceed its limit.
+          vals.forEach((r) =>
+            r.forEach((v) => {
+              if (typeof v === 'string' && v.length > 50000) {
+                throw new Error('Your input contains more than the maximum of 50000 characters in a single cell.');
+              }
+            })
+          );
           writes.push({ row, col, vals });
           vals.forEach((r, i) =>
             r.forEach((v, j) => {

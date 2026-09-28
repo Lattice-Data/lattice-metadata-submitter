@@ -320,6 +320,35 @@ function writeCellUpdates(sheet, updates) {
   });
 }
 
+// Writes [{row, updates: {prop: value}}]. A list too long for one cell continues
+// in `prop#2`, `prop#3`, ... (see ListColumns.js): those header columns are added
+// when missing, and continuation cells a shorter list no longer needs are blanked.
+function writeCellUpdatesByProp(sheet, items) {
+  if (items.length === 0) {
+    return;
+  }
+  var colByProp = ensureHeaderColumns(sheet, []);
+  var header = Object.keys(colByProp);
+  var needed = [];
+  var updates = [];
+  items.forEach(function(item) {
+    var cells = spreadListValues(item.updates, header);
+    Object.keys(cells).forEach(function(name) {
+      if (needed.indexOf(name) < 0) {
+        needed.push(name);
+      }
+      updates.push({ row: item.row, prop: name, value: cells[name] });
+    });
+  });
+  var missing = needed.filter(function(name) { return !colByProp.hasOwnProperty(name); });
+  if (missing.length > 0) {
+    colByProp = ensureHeaderColumns(sheet, missing);
+  }
+  writeCellUpdates(sheet, updates.map(function(update) {
+    return { row: update.row, col: colByProp[update.prop], value: update.value };
+  }));
+}
+
 function updateHeaderWithArray(sheet, arr) {
   // returns re-ordered array:
   // props in current header + new props in arr
@@ -337,21 +366,22 @@ function updateCellByHeaderAndRow(header, row, value) {
 function writeJsonToRow(sheet, json, row, props) {
   // `props` is an optional input array to have an ordered list of props in `json`
   // the order of `props` is kept (so it's important) when new props are added to header
+  // A list too long for one cell continues in `prop#2`, `prop#3`, ... columns,
+  // added to the header when missing (see ListColumns.js).
 
   var jsonProps = props ? props : Object.keys(json);
-  var extendedHeaderProps = updateHeaderWithArray(sheet, jsonProps);
-
-  var arr = extendedHeaderProps.map(prop => {
-    if (json.hasOwnProperty(prop)) {
-      var val = json[prop];
-      if (["array", "object"].includes(getType(val))) {
-        return JSON.stringify(val);
-      } else if (val === null) {
-        return "";
-      }
-      return val;
+  var cells = spreadListValues(json, getCellValuesInRow(sheet, HEADER_ROW));
+  var headerProps = [];
+  jsonProps.forEach(function(prop) {
+    headerProps.push(prop);
+    for (var part = 2; cells.hasOwnProperty(continuationHeader(prop, part)); part++) {
+      headerProps.push(continuationHeader(prop, part));
     }
-    return "";
+  });
+  var extendedHeaderProps = updateHeaderWithArray(sheet, headerProps);
+
+  var arr = extendedHeaderProps.map(function(prop) {
+    return cells.hasOwnProperty(prop) ? cells[prop] : "";
   });
   writeRangeToCells(sheet, row, 1, [arr]);
 }
@@ -395,6 +425,9 @@ function rowToJson(sheet, row, keepCommentedProps, bypassGoogleAutoParsing) {
 // Used by the batched submitter to avoid one getRange/getValues per row.
 function rowDataToJson(headerProps, rowDataVals, rowDataDisplayVals, keepCommentedProps, bypassGoogleAutoParsing) {
   var result = {};
+  // Parts of a list spread over `prop`, `prop#2`, ... columns (see ListColumns.js),
+  // joined after the loop: {prop: [{header, part, value}]}.
+  var listParts = {};
   for (var i = 0; i < rowDataVals.length; i++) {
     var prop = headerProps[i];
     if (!prop) {
@@ -415,8 +448,22 @@ function rowDataToJson(headerProps, rowDataVals, rowDataDisplayVals, keepComment
         val = JSON.parse(val);
       }
     }
+    var continuation = parseContinuationHeader(prop);
+    if (continuation) {
+      (listParts[continuation.base] = listParts[continuation.base] || []).push(
+        { header: prop, part: continuation.part, value: val }
+      );
+      continue;
+    }
     result[prop] = val;
   }
+  Object.keys(listParts).forEach(function(prop) {
+    var parts = listParts[prop].sort(function(a, b) { return a.part - b.part; });
+    if (result.hasOwnProperty(prop)) {
+      parts.unshift({ header: prop, part: 1, value: result[prop] });
+    }
+    result[prop] = joinListParts(prop, parts);
+  });
   return result;
 }
 

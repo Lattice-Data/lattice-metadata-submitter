@@ -9,6 +9,7 @@ append is a read-merge-write done here, one batch of rows at a time:
   3. PATCH only the lists that changed, with If-Match: <ETag>. If the object
      changed after step 1, the portal answers 412 and it is re-read and retried.
   4. Write the merged list back into the cell, so the sheet mirrors the portal.
+     A long list is spread over `prop`, `prop#2`, ... columns (see ListColumns.js).
 
 Before sending and again before writing, each row is checked against what was
 read at the start. A row that was sorted, moved or edited in the meantime is left
@@ -69,11 +70,19 @@ function mergeListItems(existing, additions) {
 }
 
 function describeListAppend(prop, result) {
-  // one #response line, e.g. "aliases: added lab:b; already there: lab:a"
+  // one #response line, e.g. "aliases: added lab:b; already there: lab:a".
+  // A long run of items shows its first few and a count, so the line fits in the
+  // cell however long the list is.
   var show = function(items) {
-    return items.map(function(item) {
+    var shown = items.length > RESPONSE_LIST_MAX_ITEMS ? items.slice(0, RESPONSE_LIST_SHOWN_ITEMS) : items;
+    var text = shown.map(function(item) {
       return typeof item === "string" ? item : JSON.stringify(item);
     }).join(", ");
+    if (shown.length < items.length) {
+      text += " and " + formatNumber(items.length - shown.length) + " more (" +
+        formatNumber(items.length) + " in all)";
+    }
+    return text;
   };
   var parts = [];
   if (result.added.length > 0) {
@@ -102,11 +111,6 @@ function toIfMatchValue(etag) {
   // A proxy may weaken the ETag to W/"..."; the portal reads the uuid=tid pairs
   // inside the quotes itself, so send back the strong form.
   return String(etag).replace(/^W\//, "");
-}
-
-function isLinkListProp(profile, prop) {
-  var propInProfile = profile["properties"][prop];
-  return !!(propInProfile && propInProfile["items"] && propInProfile["items"].hasOwnProperty("linkTo"));
 }
 
 function encodePathSegment(segment) {
@@ -147,7 +151,7 @@ function makeAppendPatchUrl(endpoint, profileName, identifier) {
 function formatResponseBody(response) {
   var text = response.getContentText();
   try {
-    return JSON.stringify(JSON.parse(text), null, HELP_TEXT_INDENT);
+    return formatResponseJson(JSON.parse(text));
   } catch (e) {
     return text.substring(0, 500);
   }
@@ -181,13 +185,20 @@ function collectAppendRows(sheetData, profile, listProps) {
     var readCells = {};
     var errors = [];
     listProps.forEach(function(prop) {
-      var value = rowVals[header.indexOf(prop)];
-      readCells[prop] = value;
-      var parsed = parseListCell(value);
-      if (parsed.error) {
-        errors.push(prop + ": " + parsed.error);
-      } else if (parsed.items.length > 0) {
-        additions[prop] = parsed.items;
+      // The items may be spread over `prop`, `prop#2`, ... columns (see ListColumns.js).
+      var items = [];
+      listColumnHeaders(header, prop).forEach(function(name) {
+        var value = rowVals[header.indexOf(name)];
+        readCells[name] = value;
+        var parsed = parseListCell(value);
+        if (parsed.error) {
+          errors.push(name + ": " + parsed.error);
+        } else {
+          items = items.concat(parsed.items);
+        }
+      });
+      if (items.length > 0) {
+        additions[prop] = items;
       }
     });
     if (errors.length === 0 && Object.keys(additions).length === 0) {
@@ -338,12 +349,16 @@ function lookUpLinks(paths, endpoint, cache) {
 function resolveLinkAdditions(rows, profile, endpoint, cache) {
   // For lists of links, turn each new value (uuid, alias or path) into the @id
   // path the portal stores, so the same object always compares equal. A value
-  // already in the portal's list verbatim needs no lookup. Sets
-  // row.additionsToMerge, or row.outcome when a value can't be resolved.
-  // `cache` (see lookUpLinks) lasts the whole run.
+  // the portal's list already has, as the same path or as the uuid a path ends
+  // in (the form GET writes back), needs no lookup and is merged as the portal
+  // spells it. Sets row.additionsToMerge, or row.outcome when a value can't be
+  // resolved. `cache` (see lookUpLinks) lasts the whole run.
   var urlPrefixes = [endpoint, getUIEndpoint(endpoint)];
+  var presentAs = function(row, prop, value) {
+    return isLinkListProp(profile, prop) ? findEquivalentLink(row.current[prop], value) : null;
+  };
   var needsLookup = function(row, prop, value) {
-    return isLinkListProp(profile, prop) && row.current[prop].indexOf(value) < 0;
+    return isLinkListProp(profile, prop) && presentAs(row, prop, value) === null;
   };
 
   var paths = [];
@@ -371,8 +386,12 @@ function resolveLinkAdditions(rows, profile, endpoint, cache) {
     row.additionsToMerge = {};
     Object.keys(row.additions).forEach(function(prop) {
       row.additionsToMerge[prop] = row.additions[prop].map(function(value) {
-        if (!needsLookup(row, prop, value)) {
+        if (!isLinkListProp(profile, prop)) {
           return value;
+        }
+        var present = presentAs(row, prop, value);
+        if (present !== null) {
+          return present;
         }
         var path = toLinkLookupPath(value, urlPrefixes);
         if (failedCodes.has(path)) {
@@ -461,7 +480,7 @@ function runAppendAttempt(tasks, profile, profileName, endpoint, cache) {
       Object.keys(row.additionsToMerge).forEach(function(prop) {
         var own = mergeListItems(task.current[prop], row.additionsToMerge[prop]);
         row.pending.lines.push(describeListAppend(prop, own));
-        row.pending.lists[prop] = lists[prop];
+        row.pending.lists[prop] = toCellLinkList(profile, prop, lists[prop]);
         if (own.added.length > 0) {
           row.pending.addsSomething = true;
         }
@@ -505,30 +524,28 @@ function runAppendAttempt(tasks, profile, profileName, endpoint, cache) {
   return retry;
 }
 
-function appendCellUpdates(rows, colByProp) {
-  // #response and #response_time for every row that is still in place, plus the
-  // merged lists for rows that worked. Failed rows keep their cells, so they can
-  // be fixed and re-run.
+function appendCellUpdates(rows) {
+  // [{row, updates}] for writeCellUpdatesByProp: #response and #response_time for
+  // every row that is still in place, plus the merged lists for rows that worked.
+  // Failed rows keep their cells, so they can be fixed and re-run.
   var time = getCurrentLocalTimeString("");
-  var updates = [];
+  var items = [];
   rows.forEach(function(row) {
     var outcome = row.outcome;
     if (outcome.kind === "moved") {
       return;
     }
-    updates.push({
-      row: row.row,
-      col: colByProp[HEADER_COMMENTED_PROP_RESPONSE],
-      value: "APPEND," + outcome.status + "\n" + outcome.lines.join("\n"),
-    });
-    updates.push({ row: row.row, col: colByProp[HEADER_COMMENTED_PROP_RESPONSE_TIME], value: time });
+    var updates = {};
+    updates[HEADER_COMMENTED_PROP_RESPONSE] = "APPEND," + outcome.status + "\n" + outcome.lines.join("\n");
+    updates[HEADER_COMMENTED_PROP_RESPONSE_TIME] = time;
     if (outcome.lists) {
       Object.keys(outcome.lists).forEach(function(prop) {
-        updates.push({ row: row.row, col: colByProp[prop], value: outcome.lists[prop] });
+        updates[prop] = outcome.lists[prop];
       });
     }
+    items.push({ row: row.row, updates: updates });
   });
-  return updates;
+  return items;
 }
 
 function appendToListsInSheet(sheet, profileName, endpoint, listProps) {
@@ -568,10 +585,7 @@ function appendToListsInSheet(sheet, profileName, endpoint, listProps) {
       tasks = retry;
     }
     markMovedRows(sheet, chunk);
-    var colByProp = ensureHeaderColumns(
-      sheet, [HEADER_COMMENTED_PROP_RESPONSE, HEADER_COMMENTED_PROP_RESPONSE_TIME]
-    );
-    writeCellUpdates(sheet, appendCellUpdates(chunk, colByProp));
+    writeCellUpdatesByProp(sheet, appendCellUpdates(chunk));
     chunk.forEach(function(row) {
       result[row.outcome.kind] += 1;
     });

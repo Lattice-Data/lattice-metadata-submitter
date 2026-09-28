@@ -9,6 +9,7 @@ const FILES = [
   'Connection.js',
   'Version.js',
   'UserInterface.js',
+  'ListColumns.js',
 ];
 const HOSTILE = '</pre><img src=x onerror="google.script.run.getPassword()">';
 
