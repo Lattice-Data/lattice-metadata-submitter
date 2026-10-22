@@ -64,7 +64,6 @@ const ALL_LATTICE_PROFILES = [
   "source",
   "tabular_file",
   "tissue",
-  "treatment",
   "user",
 ];
 

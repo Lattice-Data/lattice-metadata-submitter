@@ -77,4 +77,6 @@ test('ALL_LATTICE_PROFILES includes source and template exclusion list omits IGV
   expect(endpoint).toMatch(/const LATTICE_PROFILES_EXCLUSION_LIST_FOR_TEMPLATE_GENERATION = \[[\s\S]*?"source",/);
   expect(endpoint).not.toContain('"award",');
   expect(endpoint).not.toContain('"gene",');
+  // Treatment was removed from the Lattice schema (igvfd DB2-75, v16.0.0).
+  expect(endpoint).not.toContain('"treatment",');
 });
